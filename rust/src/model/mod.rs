@@ -1,11 +1,14 @@
 use std::fs::File;
 use std::path::Path;
 
+use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, PinnedHostBox, TensorSliceMut};
 use memmap2::Mmap;
 
 pub(crate) mod dataloader;
-mod kernels;
+
+#[macro_use]
+pub(crate) mod kernels;
 pub(crate) mod params;
 
 use dataloader::parse_header_data;
@@ -59,14 +62,6 @@ pub struct GPT2<'ctx, NS: GpuCtxSpace> {
     pub cpu_losses: Option<PinnedHostBox<'ctx, [f32]>>,
 }
 
-macro_rules! next_layer_tensor {
-    ($ctx: ident, $params:ident, $size: expr) => {{
-        let (left, right) = $ctx.split_tensor_slice($params, $size).unwrap();
-        $params = right;
-        assert!(left.len() == $size);
-        left
-    }};
-}
 impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     /// Creates a new GPT-2 model instance from a checkpoint file.
     ///
@@ -147,6 +142,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     pub fn forward<'ctx_a: 'ctx>(
         &mut self,
         ctx: &'ctx GpuCtxGuard<'ctx_a, '_, NS>,
+        cublas_handle: cublas_sys::cublasHandle_t,
         inputs: &[i32],
         targets: &[i32],
         batch_size: usize,
@@ -235,8 +231,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
 
         for l in 0..self.config.num_layers {
             if l != 0 {
-                residual =
-                    next_layer_tensor!(ctx, residual3, batch_size * seq_len * self.config.channels)
+                residual = next_tensor!(ctx, residual3, batch_size * seq_len * self.config.channels)
             };
             /*
             float* l_ln1w = params.ln1w + l * C;
@@ -272,48 +267,38 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             // need not be stored for backward
             float* scratch = acts.output;
             */
-            let l_ln1w = next_layer_tensor!(ctx, ln1w, self.config.channels);
-            let l_ln1b = next_layer_tensor!(ctx, ln1b, self.config.channels);
-            let l_qkvw =
-                next_layer_tensor!(ctx, qkvw, 3 * self.config.channels * self.config.channels);
-            let l_qkvb = next_layer_tensor!(ctx, qkvb, 3 * self.config.channels);
+            let l_ln1w = next_tensor!(ctx, ln1w, self.config.channels);
+            let l_ln1b = next_tensor!(ctx, ln1b, self.config.channels);
+            let l_qkvw = next_tensor!(ctx, qkvw, 3 * self.config.channels * self.config.channels);
+            let l_qkvb = next_tensor!(ctx, qkvb, 3 * self.config.channels);
             let l_attprojw =
-                next_layer_tensor!(ctx, attprojw, self.config.channels * self.config.channels);
-            let l_attprojb = next_layer_tensor!(ctx, attprojb, self.config.channels);
-            let l_ln2w = next_layer_tensor!(ctx, ln2w, self.config.channels);
-            let l_ln2b = next_layer_tensor!(ctx, ln2b, self.config.channels);
-            let l_fcw =
-                next_layer_tensor!(ctx, fcw, 4 * self.config.channels * self.config.channels);
-            let l_fcb = next_layer_tensor!(ctx, fcb, 4 * self.config.channels);
+                next_tensor!(ctx, attprojw, self.config.channels * self.config.channels);
+            let l_attprojb = next_tensor!(ctx, attprojb, self.config.channels);
+            let l_ln2w = next_tensor!(ctx, ln2w, self.config.channels);
+            let l_ln2b = next_tensor!(ctx, ln2b, self.config.channels);
+            let l_fcw = next_tensor!(ctx, fcw, 4 * self.config.channels * self.config.channels);
+            let l_fcb = next_tensor!(ctx, fcb, 4 * self.config.channels);
             let l_fcprojw =
-                next_layer_tensor!(ctx, fcprojw, self.config.channels * 4 * self.config.channels);
-            let l_fcprojb = next_layer_tensor!(ctx, fcprojb, self.config.channels);
+                next_tensor!(ctx, fcprojw, self.config.channels * 4 * self.config.channels);
+            let l_fcprojb = next_tensor!(ctx, fcprojb, self.config.channels);
 
-            let l_ln1 = next_layer_tensor!(ctx, ln1, batch_size * seq_len * self.config.channels);
-            let l_ln1_mean = next_layer_tensor!(ctx, ln1_mean, batch_size * seq_len);
-            let l_ln1_rstd = next_layer_tensor!(ctx, ln1_rstd, batch_size * seq_len);
-            let l_qkvr =
-                next_layer_tensor!(ctx, qkvr, batch_size * seq_len * 3 * self.config.channels);
-            let l_atty = next_layer_tensor!(ctx, atty, batch_size * seq_len * self.config.channels);
-            let l_att = next_layer_tensor!(
-                ctx,
-                att,
-                batch_size * self.config.num_heads * seq_len * seq_len
-            );
-            let l_attproj =
-                next_layer_tensor!(ctx, attproj, batch_size * seq_len * self.config.channels);
+            let l_ln1 = next_tensor!(ctx, ln1, batch_size * seq_len * self.config.channels);
+            let l_ln1_mean = next_tensor!(ctx, ln1_mean, batch_size * seq_len);
+            let l_ln1_rstd = next_tensor!(ctx, ln1_rstd, batch_size * seq_len);
+            let l_qkvr = next_tensor!(ctx, qkvr, batch_size * seq_len * 3 * self.config.channels);
+            let l_atty = next_tensor!(ctx, atty, batch_size * seq_len * self.config.channels);
+            let l_att =
+                next_tensor!(ctx, att, batch_size * self.config.num_heads * seq_len * seq_len);
+            let l_attproj = next_tensor!(ctx, attproj, batch_size * seq_len * self.config.channels);
             let l_residual2 =
-                next_layer_tensor!(ctx, residual2, batch_size * seq_len * self.config.channels);
-            let l_ln2 = next_layer_tensor!(ctx, ln2, batch_size * seq_len * self.config.channels);
-            let l_ln2_mean = next_layer_tensor!(ctx, ln2_mean, batch_size * seq_len);
-            let l_ln2_rstd = next_layer_tensor!(ctx, ln2_rstd, batch_size * seq_len);
-            let l_fch =
-                next_layer_tensor!(ctx, fch, batch_size * seq_len * 4 * self.config.channels);
+                next_tensor!(ctx, residual2, batch_size * seq_len * self.config.channels);
+            let l_ln2 = next_tensor!(ctx, ln2, batch_size * seq_len * self.config.channels);
+            let l_ln2_mean = next_tensor!(ctx, ln2_mean, batch_size * seq_len);
+            let l_ln2_rstd = next_tensor!(ctx, ln2_rstd, batch_size * seq_len);
+            let l_fch = next_tensor!(ctx, fch, batch_size * seq_len * 4 * self.config.channels);
             let l_fch_gelu =
-                next_layer_tensor!(ctx, fch_gelu, batch_size * seq_len * 4 * self.config.channels);
-            let l_fcproj =
-                next_layer_tensor!(ctx, fcproj, batch_size * seq_len * self.config.channels);
-
+                next_tensor!(ctx, fch_gelu, batch_size * seq_len * 4 * self.config.channels);
+            let l_fcproj = next_tensor!(ctx, fcproj, batch_size * seq_len * self.config.channels);
             /*
             matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
             attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
@@ -337,6 +322,115 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
                 batch_size,
                 seq_len,
                 self.config.channels,
+            );
+            // matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
+            matmul_forward(
+                ctx,
+                self.module,
+                scratch,
+                l_ln1,
+                l_qkvw,
+                l_qkvb,
+                batch_size,
+                seq_len,
+                self.config.channels,
+                3 * self.config.channels,
+            );
+            /*
+                 attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
+            matmul_forward(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C);
+            residual_forward(l_residual2, residual, l_attproj, B*T*C);
+            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C);
+            matmul_forward(l_fch, l_ln2, l_fcw, l_fcb, B, T, C, 4*C);
+            gelu_forward(l_fch_gelu, l_fch, B*T*4*C);
+            matmul_forward(l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4*C, C);
+            residual_forward(l_residual3, l_residual2, l_fcproj, B*T*C);
+            */
+            attention_forward(
+                ctx,
+                self.module,
+                cublas_handle,
+                l_atty,
+                l_qkvr,
+                l_att,
+                scratch,
+                batch_size,
+                seq_len,
+                self.config.channels,
+                self.config.num_heads,
+            );
+            matmul_forward(
+                ctx,
+                self.module,
+                l_attproj,
+                l_atty,
+                l_attprojw,
+                l_attprojb,
+                batch_size,
+                seq_len,
+                self.config.channels,
+                self.config.channels,
+            );
+            residual_forward(
+                ctx,
+                self.module,
+                l_residual2,
+                residual,
+                l_attproj,
+                batch_size * seq_len * self.config.channels,
+            );
+            layernorm_forward(
+                ctx,
+                self.module,
+                l_ln2,
+                l_ln2_mean,
+                l_ln2_rstd,
+                l_residual2,
+                l_ln2w,
+                l_ln2b,
+                batch_size,
+                seq_len,
+                self.config.channels,
+            );
+            matmul_forward(
+                ctx,
+                self.module,
+                l_fch,
+                l_ln2,
+                l_fcw,
+                l_fcb,
+                batch_size,
+                seq_len,
+                self.config.channels,
+                4 * self.config.channels,
+            );
+
+            gelu_forward(
+                ctx,
+                self.module,
+                l_fch_gelu,
+                l_fch,
+                batch_size * seq_len * 4 * self.config.channels,
+            );
+            matmul_forward(
+                ctx,
+                self.module,
+                l_fcproj,
+                l_fch_gelu,
+                l_fcprojw,
+                l_fcprojb,
+                batch_size,
+                seq_len,
+                4 * self.config.channels,
+                self.config.channels,
+            );
+            residual_forward(
+                ctx,
+                self.module,
+                residual3,
+                l_residual2,
+                l_fcproj,
+                batch_size * seq_len * self.config.channels,
             );
         }
 

@@ -75,10 +75,12 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     m: &GpuModule<NS>,
     args: &Args,
 ) {
-    let mut handle = MaybeUninit::uninit();
-    let cublas_handle = unsafe {
-        cublas_sys::cublasCreate_v2(handle.as_mut_ptr());
-        handle.assume_init()
+    let cublas_handle = {
+        let mut handle = MaybeUninit::uninit();
+        unsafe {
+            cublas_sys::cublasCreate_v2(handle.as_mut_ptr());
+            handle.assume_init()
+        }
     };
     let (major, minor) = ctx.get_compute_capability();
     let enable_tf32 = major >= 8;
@@ -136,7 +138,14 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
             val_loader.reset();
             for _ in 0..val_num_batches {
                 let (input, target) = val_loader.next_batch();
-                model.forward(ctx, &input, &target, args.batch_size, args.seq_length);
+                model.forward(
+                    ctx,
+                    cublas_handle,
+                    &input,
+                    &target,
+                    args.batch_size,
+                    args.seq_length,
+                );
                 val_loss += model.mean_loss;
             }
             val_loss /= val_num_batches as f32;
