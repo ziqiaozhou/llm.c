@@ -143,17 +143,17 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         &mut self,
         ctx: &'ctx GpuCtxGuard<'ctx_a, '_, NS>,
         cublas_handle: cublas_sys::cublasHandle_t,
-        inputs: &[i32],
-        targets: &[i32],
+        cpu_inputs: &[i32],
+        cpu_targets: &[i32],
         batch_size: usize,
         seq_len: usize,
     ) {
-        assert!(inputs.len() >= batch_size * seq_len);
-        assert!(targets.len() >= batch_size * seq_len);
-        inputs
+        assert!(cpu_inputs.len() >= batch_size * seq_len);
+        assert!(cpu_targets.len() >= batch_size * seq_len);
+        cpu_inputs
             .iter()
             .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
-        targets
+        cpu_targets
             .iter()
             .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
 
@@ -161,23 +161,46 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         if self.acts.is_none() {
             let act_sizes = self.config.get_act_sizes(batch_size, seq_len);
             self.num_activations = act_sizes.iter().sum();
+            self.batch_size = batch_size;
+            self.seq_len = seq_len;
             self.acts =
                 Some(ActivationTensors::new(ctx, act_sizes, &vec![0.0f32; self.num_activations]));
             println!(
                 "allocated {} MiB for activations",
                 (self.num_activations * std::mem::size_of::<f32>()) / (1024 * 1024)
             );
-
-            // also create memory for caching inputs and targets
-            assert!(self.inputs.is_none());
-            self.inputs = Some(ctx.new_tensor_slice(&inputs[0..batch_size * seq_len]).unwrap());
-            assert!(self.targets.is_none());
-            self.targets = Some(ctx.new_tensor_slice(&targets[0..batch_size * seq_len]).unwrap());
-        } else {
-            // validate B,T is consistent with how we've allocated the memory before
-            assert!(self.batch_size == batch_size);
-            assert!(self.seq_len == seq_len);
         }
+
+        // also create memory for caching inputs and targets
+        if self.inputs.is_none() {
+            self.inputs = Some(ctx.new_tensor_slice(&cpu_inputs[0..batch_size * seq_len]).unwrap());
+        } else {
+            self.inputs
+                .as_mut()
+                .unwrap()
+                .copy_from_host(&cpu_inputs[0..batch_size * seq_len], batch_size * seq_len, ctx)
+                .unwrap();
+        }
+        if cpu_targets.len() > 0 {
+            if self.targets.is_none() {
+                self.targets =
+                    Some(ctx.new_tensor_slice(&cpu_targets[0..batch_size * seq_len]).unwrap());
+            } else {
+                self.targets
+                    .as_mut()
+                    .unwrap()
+                    .copy_from_host(
+                        &cpu_targets[0..batch_size * seq_len],
+                        batch_size * seq_len,
+                        ctx,
+                    )
+                    .unwrap();
+            }
+        }
+
+        // validate B,T is consistent with how we've allocated the memory before
+        assert!(self.batch_size == batch_size);
+        assert!(self.seq_len == seq_len);
 
         // Sync losses from GPU to CPU
         let acts = self.acts.as_mut().unwrap().inner(ctx);
@@ -337,7 +360,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
                 3 * self.config.channels,
             );
             /*
-                 attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
+            attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
             matmul_forward(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C);
             residual_forward(l_residual2, residual, l_attproj, B*T*C);
             layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C);
@@ -434,15 +457,77 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             );
         }
 
+        let residual = residual3;
+        /*
+        layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, residual, params.lnfw, params.lnfb, B, T, C);
+        matmul_forward(acts.output, acts.lnf, params.wte, NULL, B, T, C, Vp);
+        */
+        layernorm_forward(
+            ctx,
+            self.module,
+            acts.lnf,
+            acts.lnf_mean,
+            acts.lnf_rstd,
+            residual,
+            params.lnfw,
+            params.lnfb,
+            batch_size,
+            seq_len,
+            self.config.channels,
+        );
+        let empty_tensor = ctx.new_tensor_slice(&[]).unwrap();
+        matmul_forward(
+            ctx,
+            self.module,
+            scratch,
+            acts.lnf,
+            params.wte,
+            empty_tensor,
+            batch_size,
+            seq_len,
+            self.config.channels,
+            self.config.padded_vocab_size,
+        );
+
+        /*
+        fused_classifier3(acts.output, acts.losses, NULL, model->targets, B, T, V, Vp);
+        // for convenience also evaluate the mean loss (TODO re-think this compute+sync point)
+        // move the (B,T) losses to CPU
+        cudaCheck(cudaMemcpy(model->cpu_losses, acts.losses, B * T * sizeof(float), cudaMemcpyDeviceToHost));
+        float mean_loss = 0.0f;
+        for (int i=0; i<B*T; i++) { mean_loss += model->cpu_losses[i]; }
+        mean_loss /= B*T;
+        model->mean_loss = mean_loss;
+        */
+        if cpu_targets.len() == 0 {
+            self.mean_loss = -1.0;
+            return;
+        }
+        let loss_len = acts.losses.len();
+        fused_classifier3(
+            ctx,
+            self.module,
+            scratch,
+            acts.losses,
+            empty_tensor,
+            targets,
+            batch_size,
+            seq_len,
+            self.config.vocab_size,
+            self.config.padded_vocab_size,
+        );
         if self.cpu_losses.is_none() {
             println!("acts.losses len = {}", acts.losses.len());
-            let cpu_losses = PinnedHostBox::new_from_tensor(ctx, &acts.losses).unwrap();
+            self.cpu_losses = Some(PinnedHostBox::new_from_tensor(ctx, &acts.losses).unwrap());
         } else {
             acts.losses
                 .copy_to_host(self.cpu_losses.as_mut().unwrap(), acts.losses.len(), ctx)
                 .unwrap();
         }
-
-        unimplemented!()
+        let mean_loss =
+            self.cpu_losses.as_ref().unwrap()[0..(batch_size * seq_len)].iter().sum::<f32>()
+                / (batch_size * seq_len) as f32;
+        self.mean_loss = mean_loss;
+        println!("mean loss: {}", mean_loss);
     }
 }

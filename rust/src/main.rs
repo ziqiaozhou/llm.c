@@ -53,7 +53,6 @@ struct Args {
 fn main() {
     let args = Args::parse();
     println!("params: {args:?}");
-    eprintln!("WARNING: the code is currently broken, please ignore this run");
     cuda_ctx(0, |ctx, m| {
         llm_rs_run(ctx, m, &args);
     });
@@ -98,22 +97,24 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     let mut model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
-    println!("| max_sequence_length T | %{} |\n", model.config.max_seq_len);
-    println!("| vocab_size V          | %{} |\n", model.config.vocab_size);
-    println!("| padded_vocab_size Vp  | %{} |\n", model.config.padded_vocab_size);
-    println!("| num_layers L          | %{} |\n", model.config.num_layers);
-    println!("| num_heads NH          | %{} |\n", model.config.num_heads);
-    println!("| channels C            | %{} |\n", model.config.channels);
-    println!("| num_parameters        | %{} |\n", model.num_parameters);
+    println!("| max_sequence_length T | {} |\n", model.config.max_seq_len);
+    println!("| vocab_size V          | {} |\n", model.config.vocab_size);
+    println!("| padded_vocab_size Vp  | {} |\n", model.config.padded_vocab_size);
+    println!("| num_layers L          | {} |\n", model.config.num_layers);
+    println!("| num_heads NH          | {} |\n", model.config.num_heads);
+    println!("| channels C            | {} |\n", model.config.channels);
+    println!("| num_parameters        | {} |\n", model.num_parameters);
     println!("+-----------------------+----------------------------------------------------+\n");
     let train_loader = DataLoader::new(&args.train_data_pattern, args.batch_size, args.seq_length);
     let mut val_loader = DataLoader::new(&args.val_data_pattern, args.batch_size, args.seq_length);
-    let val_num_batches = if val_loader.num_batches > args.val_max_steps {
-        args.val_max_steps
-    } else {
-        val_loader.num_batches
-    };
-    println!("| train_num_batches     | %{} |\n", train_loader.num_batches);
+    /*
+    int val_num_batches = val_loader.num_tokens / (B*T);
+    if (val_num_batches > val_max_steps) { val_num_batches = val_max_steps; }
+    */
+    let val_num_batches = val_loader.num_tokens / (args.batch_size * args.seq_length);
+    let val_num_batches =
+        if val_num_batches > args.val_max_steps { args.val_max_steps } else { val_num_batches };
+    println!("| train_num_batches     | {} |\n", train_loader.num_batches);
     println!("val_num_batches: {}", val_num_batches);
     println!("+-----------------------+----------------------------------------------------+\n");
     println!(

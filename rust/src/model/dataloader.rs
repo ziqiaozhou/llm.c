@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::path::Path;
 use std::slice;
-use std::slice::Chunks;
+use std::slice::ChunksExact;
 use std::sync::Arc;
 
 use memmap2::Mmap;
@@ -45,12 +45,13 @@ pub struct DataLoader<'a> {
     /// File for tokens
     file_mmap: Arc<Mmap>,
     tokens: Option<&'a [u16]>,
-    tokens_chunks: Option<Chunks<'a, u16>>,
+    tokens_chunks: Option<ChunksExact<'a, u16>>,
     // ----------------------------------------------------------------------------
     // Convenience variables
     // ----------------------------------------------------------------------------
     pub size_per_batch: usize,
     pub num_batches: usize,
+    pub num_tokens: usize,
 }
 
 impl<'a> DataLoader<'a> {
@@ -77,13 +78,15 @@ impl<'a> DataLoader<'a> {
             tokens_chunks: None,
             size_per_batch,
             num_batches: 0,
+            num_tokens: 0,
         };
         let (header, tokens) = parse_header_data::<u16>(&loader.file_mmap.clone(), 20240520, 1);
         let ntoks = header[2] as usize;
         assert!(ntoks > 0);
         assert!(tokens.len() == ntoks, "{} != {}", tokens.len(), ntoks);
         loader.tokens = Some(tokens);
-        let tokens_chunks = loader.tokens.as_ref().unwrap().chunks(size_per_batch);
+        loader.num_tokens = ntoks;
+        let tokens_chunks = loader.tokens.as_ref().unwrap().chunks_exact(size_per_batch);
         let num_batches = tokens_chunks.len();
         loader.tokens_chunks = Some(tokens_chunks);
         loader.num_batches = num_batches;
@@ -92,7 +95,7 @@ impl<'a> DataLoader<'a> {
 
     /// Resets the DataLoader to start from the beginning of the file.
     pub fn reset(&mut self) {
-        self.tokens_chunks = Some(self.tokens.as_ref().unwrap().chunks(self.size_per_batch));
+        self.tokens_chunks = Some(self.tokens.as_ref().unwrap().chunks_exact(self.size_per_batch));
     }
 
     /// Loads the next batch of data into the DataLoader's memory.

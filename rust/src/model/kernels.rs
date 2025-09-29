@@ -422,3 +422,48 @@ pub(crate) fn gelu_forward<'ctx, CN: GpuCtxSpace>(
     gelu_forward_kernel::launch(config, ctx, m, out, inp, n as _)
         .expect("failed to launch gelu_forward_kernel");
 }
+
+/*
+void fused_classifier3(float* logits, float* losses,
+                      const float* dlosses, const int* targets,
+                      int B, int T, int V, int P) {
+    const int block_size = 1024;
+    const int N = B * T;
+    const int grid_size = N;
+    fused_classifier_kernel3<<<grid_size, block_size>>>(logits, losses, NULL, dlosses, targets, B, T, V, P);
+    cudaCheck(cudaGetLastError());
+}
+*/
+
+pub(crate) fn fused_classifier3<'ctx, CN: GpuCtxSpace>(
+    ctx: &GpuCtxGuard<'ctx, '_, CN>,
+    m: &GpuModule<CN>,
+    logits: &'ctx mut CudaMemSlice<f32, CN>,
+    losses: &'ctx mut CudaMemSlice<f32, CN>,
+    dlosses: &'ctx CudaMemSlice<f32, CN>,
+    targets: &'ctx CudaMemSlice<i32, CN>,
+    batch_size: usize,
+    seq_len: usize,
+    vocab_size: usize,
+    pad_vocab_size: usize,
+) {
+    const BSIZE: usize = 1024;
+    let grid_size = batch_size * seq_len;
+    let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    let empty_tensor = ctx.new_tensor_slice(&[]).unwrap();
+    fused_classifier_kernel3::launch(
+        config,
+        ctx,
+        m,
+        logits,
+        losses,
+        empty_tensor,
+        dlosses,
+        targets,
+        batch_size as _,
+        seq_len as _,
+        vocab_size as _,
+        pad_vocab_size as _,
+    )
+    .expect("failed to launch fused_classifier_kernel3");
+}
