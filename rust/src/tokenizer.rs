@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::Read;
-use std::io::{self, Write};
 use std::path::Path;
 
 pub struct Tokenizer {
@@ -20,11 +19,7 @@ impl Tokenizer {
     ///
     /// A new `Tokenizer` instance.
     pub fn new(filename: &Path) -> Self {
-        let mut tokenizer = Tokenizer {
-            vocab_size: 0,
-            token_table: Vec::new(),
-            init_ok: false,
-        };
+        let mut tokenizer = Tokenizer { vocab_size: 0, token_table: Vec::new(), init_ok: false };
 
         let mut file = match File::open(filename) {
             Ok(file) => file,
@@ -60,17 +55,12 @@ impl Tokenizer {
 
         for _ in 0..tokenizer.vocab_size {
             let mut length = [0];
-            file.read_exact(&mut length)
-                .expect("Failed to read token length");
+            file.read_exact(&mut length).expect("Failed to read token length");
 
             assert!(length[0] > 0); // Every token should be at least one character
             let mut token_bytes = vec![0u8; length[0] as usize];
-            file.read_exact(&mut token_bytes)
-                .expect("Failed to read token bytes");
-            let token = match String::from_utf8(token_bytes) {
-                Ok(token) => token,
-                Err(_) => String::new(),
-            };
+            file.read_exact(&mut token_bytes).expect("Failed to read token bytes");
+            let token = String::from_utf8(token_bytes).unwrap_or_default();
 
             tokenizer.token_table.push(token);
         }
@@ -102,7 +92,7 @@ impl Tokenizer {
 
     /// Frees the resources allocated by the Tokenizer.
     pub fn free(&mut self) {
-        if self.init_ok != false {
+        if self.init_ok {
             self.token_table.clear();
             self.init_ok = false;
         }

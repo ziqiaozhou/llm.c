@@ -1,9 +1,5 @@
-use std::alloc::{Layout, alloc};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::mem;
 use std::path::Path;
-use std::ptr::null_mut;
 
 use gpu_host::CudaMemSlice;
 

@@ -1,4 +1,4 @@
-use gpu_host::{GpuCtxSpace, TensorSlice};
+use gpu_host::{GpuCtxSpace, TensorSliceMut};
 
 macro_rules! new_tensors {
     (
@@ -7,21 +7,21 @@ macro_rules! new_tensors {
         pub struct $name:ident<'ctx, NS: GpuCtxSpace> {
             $(
                 $(#[$doc:meta])*
-                pub $field:ident : TensorSlice<'ctx, f32, NS>,
+                pub $field:ident : TensorSliceMut<'ctx, f32, NS>,
             )*
         }
     ) => {
         pub const $param_len: usize = $len;
 
         pub struct $name_tensor<'ctx, NS: GpuCtxSpace> {
-            pub tensor: TensorSlice<'ctx, f32, NS>,
+            pub tensor: TensorSliceMut<'ctx, f32, NS>,
             pub param_sizes: [usize; $param_len],
         }
 
         pub struct $name<'ctx, NS: GpuCtxSpace> {
             $(
                 $(#[$doc])*
-                pub $field: TensorSlice<'ctx, f32, NS>,
+                pub $field: TensorSliceMut<'ctx, f32, NS>,
             )*
         }
 
@@ -59,52 +59,52 @@ pub const NUM_PARAMETER_TENSORS: usize = 16;
 pub struct ParameterTensors<'ctx, NS: GpuCtxSpace>;
 pub struct ParameterTensorsInner<'ctx, NS: GpuCtxSpace> {
     /// Token embeddings (V, C).
-    pub wte: TensorSlice<'ctx, f32, NS>,
+    pub wte: TensorSliceMut<'ctx, f32, NS>,
 
     /// Position embeddings (maxT, C).
-    pub wpe: TensorSlice<'ctx, f32, NS>,
+    pub wpe: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization weights for the first layer (L, C).
-    pub ln1w: TensorSlice<'ctx, f32, NS>,
+    pub ln1w: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization biases for the first layer (L, C).
-    pub ln1b: TensorSlice<'ctx, f32, NS>,
+    pub ln1b: TensorSliceMut<'ctx, f32, NS>,
 
     /// Query, Key, Value weights (L, 3*C, C).
-    pub qkvw: TensorSlice<'ctx, f32, NS>,
+    pub qkvw: TensorSliceMut<'ctx, f32, NS>,
 
     /// Query, Key, Value biases (L, 3*C).
-    pub qkvb: TensorSlice<'ctx, f32, NS>,
+    pub qkvb: TensorSliceMut<'ctx, f32, NS>,
 
     /// Attention projection weights (L, C, C).
-    pub attprojw: TensorSlice<'ctx, f32, NS>,
+    pub attprojw: TensorSliceMut<'ctx, f32, NS>,
 
     /// Attention projection biases (L, C).
-    pub attprojb: TensorSlice<'ctx, f32, NS>,
+    pub attprojb: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization weights for the second layer (L, C).
-    pub ln2w: TensorSlice<'ctx, f32, NS>,
+    pub ln2w: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization biases for the second layer (L, C).
-    pub ln2b: TensorSlice<'ctx, f32, NS>,
+    pub ln2b: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected weights (L, 4*C, C).
-    pub fcw: TensorSlice<'ctx, f32, NS>,
+    pub fcw: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected biases (L, 4*C).
-    pub fcb: TensorSlice<'ctx, f32, NS>,
+    pub fcb: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected projection weights (L, C, 4*C).
-    pub fcprojw: TensorSlice<'ctx, f32, NS>,
+    pub fcprojw: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected projection biases (L, C).
-    pub fcprojb: TensorSlice<'ctx, f32, NS>,
+    pub fcprojb: TensorSliceMut<'ctx, f32, NS>,
 
     /// Final layer normalization weights (C).
-    pub lnfw: TensorSlice<'ctx, f32, NS>,
+    pub lnfw: TensorSliceMut<'ctx, f32, NS>,
 
     /// Final layer normalization biases (C).
-    pub lnfb: TensorSlice<'ctx, f32, NS>,
+    pub lnfb: TensorSliceMut<'ctx, f32, NS>,
 }
 }
 
@@ -115,72 +115,72 @@ pub struct ActivationTensors<'ctx, NS: GpuCtxSpace>;
 
 pub struct ActivationTensorsInner<'ctx, NS: GpuCtxSpace> {
     /// Encoded (B, T, C)
-    pub encoded: TensorSlice<'ctx, f32, NS>,
+    pub encoded: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 1 (L, B, T, C)
-    pub ln1: TensorSlice<'ctx, f32, NS>,
+    pub ln1: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 1 mean (L, B, T)
-    pub ln1_mean: TensorSlice<'ctx, f32, NS>,
+    pub ln1_mean: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 1 reciprocal std (L, B, T)
-    pub ln1_rstd: TensorSlice<'ctx, f32, NS>,
+    pub ln1_rstd: TensorSliceMut<'ctx, f32, NS>,
 
     /// Query, Key, Value (L, B, T, 3*C)
-    pub qkv: TensorSlice<'ctx, f32, NS>,
+    pub qkv: TensorSliceMut<'ctx, f32, NS>,
 
     /// Attention output (L, B, T, C)
-    pub atty: TensorSlice<'ctx, f32, NS>,
+    pub atty: TensorSliceMut<'ctx, f32, NS>,
 
     /// Pre-attention scores (L, B, NH, T, T)
-    pub preatt: TensorSlice<'ctx, f32, NS>,
+    pub preatt: TensorSliceMut<'ctx, f32, NS>,
 
     /// Attention scores (L, B, NH, T, T)
-    pub att: TensorSlice<'ctx, f32, NS>,
+    pub att: TensorSliceMut<'ctx, f32, NS>,
 
     /// Attention projection (L, B, T, C)
-    pub attproj: TensorSlice<'ctx, f32, NS>,
+    pub attproj: TensorSliceMut<'ctx, f32, NS>,
 
     /// Second residual connection (L, B, T, C)
-    pub residual2: TensorSlice<'ctx, f32, NS>,
+    pub residual2: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 2 (L, B, T, C)
-    pub ln2: TensorSlice<'ctx, f32, NS>,
+    pub ln2: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 2 mean (L, B, T)
-    pub ln2_mean: TensorSlice<'ctx, f32, NS>,
+    pub ln2_mean: TensorSliceMut<'ctx, f32, NS>,
 
     /// Layer normalization 2 reciprocal std (L, B, T)
-    pub ln2_rstd: TensorSlice<'ctx, f32, NS>,
+    pub ln2_rstd: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected hidden (L, B, T, 4*C)
-    pub fch: TensorSlice<'ctx, f32, NS>,
+    pub fch: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected hidden GELU activation (L, B, T, 4*C)
-    pub fch_gelu: TensorSlice<'ctx, f32, NS>,
+    pub fch_gelu: TensorSliceMut<'ctx, f32, NS>,
 
     /// Fully connected projection (L, B, T, C)
-    pub fcproj: TensorSlice<'ctx, f32, NS>,
+    pub fcproj: TensorSliceMut<'ctx, f32, NS>,
 
     /// Third residual connection (L, B, T, C)
-    pub residual3: TensorSlice<'ctx, f32, NS>,
+    pub residual3: TensorSliceMut<'ctx, f32, NS>,
 
     /// Final layer normalization (B, T, C)
-    pub lnf: TensorSlice<'ctx, f32, NS>,
+    pub lnf: TensorSliceMut<'ctx, f32, NS>,
 
     /// Final layer normalization mean (B, T)
-    pub lnf_mean: TensorSlice<'ctx, f32, NS>,
+    pub lnf_mean: TensorSliceMut<'ctx, f32, NS>,
 
     /// Final layer normalization reciprocal std (B, T)
-    pub lnf_rstd: TensorSlice<'ctx, f32, NS>,
+    pub lnf_rstd: TensorSliceMut<'ctx, f32, NS>,
 
     /// Logits (B, T, V)
-    pub logits: TensorSlice<'ctx, f32, NS>,
+    pub logits: TensorSliceMut<'ctx, f32, NS>,
 
     /// Probabilities (B, T, V)
-    pub probs: TensorSlice<'ctx, f32, NS>,
+    pub probs: TensorSliceMut<'ctx, f32, NS>,
 
     /// Losses (B, T)
-    pub losses: TensorSlice<'ctx, f32, NS>,
+    pub losses: TensorSliceMut<'ctx, f32, NS>,
 }
 }

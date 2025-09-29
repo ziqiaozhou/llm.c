@@ -1,15 +1,14 @@
-use std::{
-    mem::MaybeUninit,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU32, AtomicUsize},
-    },
-};
+#![allow(unused_variables)]
+#![allow(dead_code)]
+#![allow(clippy::too_many_arguments)]
+
+use std::mem::MaybeUninit;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 
 use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
-use gpu_host::{CtxSpaceZero, GpuCtxZeroGuard, GpuModule, cuda_ctx, cuda_ctx_no_mod};
+use gpu_host::{GpuCtxZeroGuard, cuda_ctx_no_mod};
 
 mod dataloader;
 mod model;
@@ -94,15 +93,9 @@ fn llm_rs_run<'ctx, 'a>(ctx: &GpuCtxZeroGuard<'ctx, 'a>, args: &Args) {
     let model = GPT2::new(ctx, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
-    println!(
-        "| max_sequence_length T | %{} |\n",
-        model.config.max_seq_len
-    );
+    println!("| max_sequence_length T | %{} |\n", model.config.max_seq_len);
     println!("| vocab_size V          | %{} |\n", model.config.vocab_size);
-    println!(
-        "| padded_vocab_size Vp  | %{} |\n",
-        model.config.padded_vocab_size
-    );
+    println!("| padded_vocab_size Vp  | %{} |\n", model.config.padded_vocab_size);
     println!("| num_layers L          | %{} |\n", model.config.num_layers);
     println!("| num_heads NH          | %{} |\n", model.config.num_heads);
     println!("| channels C            | %{} |\n", model.config.channels);
@@ -113,33 +106,27 @@ fn llm_rs_run<'ctx, 'a>(ctx: &GpuCtxZeroGuard<'ctx, 'a>, args: &Args) {
         args.batch_size as usize,
         args.seq_length as usize,
     );
-    let mut val_loader = DataLoader::new(
-        &args.val_data_pattern,
-        args.batch_size as usize,
-        args.seq_length as usize,
-    );
+    let mut val_loader =
+        DataLoader::new(&args.val_data_pattern, args.batch_size as usize, args.seq_length as usize);
     let val_num_batches = if val_loader.num_batches > args.val_max_steps {
         args.val_max_steps
     } else {
         val_loader.num_batches
     };
-    println!(
-        "| train_num_batches     | %{} |\n",
-        train_loader.num_batches
-    );
+    println!("| train_num_batches     | %{} |\n", train_loader.num_batches);
     println!("val_num_batches: {}", val_num_batches);
     println!("+-----------------------+----------------------------------------------------+\n");
     println!(
         "allocated {} MiB for model parameters",
-        (model.num_parameters * std::mem::size_of::<f32>() as usize) / (1024 * 1024)
+        (model.num_parameters * std::mem::size_of::<f32>()) / (1024 * 1024)
     );
 
     let tokenizer = tokenizer::Tokenizer::new(&args.tokenizer_path);
 
     // some memory for generating samples from the model
-    let mut rng_state: u64 = 1337;
+    let rng_state: u64 = 1337;
     let mut gen_tokens = vec![0; args.batch_size as usize * args.seq_length as usize];
-    let cpu_logits = vec![0.0f32; model.config.vocab_size as usize];
+    let cpu_logits = vec![0.0f32; model.config.vocab_size];
 
     // train
     for step in 0..=train_loader.num_batches {
@@ -167,9 +154,7 @@ fn llm_rs_run<'ctx, 'a>(ctx: &GpuCtxZeroGuard<'ctx, 'a>, args: &Args) {
         // once in a while do model inference to print generated text
         if (step > 0 && step % args.sample_every == 0) || last_step {
             // fill up gen_tokens with the GPT2_EOT, which kicks off the generation
-            for i in 0..args.batch_size as usize * args.seq_length as usize {
-                gen_tokens[i] = 50256;
-            }
+            gen_tokens.iter_mut().for_each(|t| *t = 50256); // GPT2_EOT
             // now sample from the model autoregressively
             println!("generating:\n---");
             for t in 1..args.gen_t {

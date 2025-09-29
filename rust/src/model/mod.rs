@@ -1,10 +1,11 @@
 use core::slice;
-use memmap2::Mmap;
 use std::fs::File;
 use std::path::Path;
 
-use gpu_host::{GpuCtxGuard, GpuCtxSpace, TensorSlice};
+use gpu_host::{GpuCtxGuard, GpuCtxSpace, PinnedHostBox, TensorSliceMut};
+use memmap2::Mmap;
 
+mod kernels;
 mod params;
 
 use params::{ActivationTensors, NUM_PARAMETER_TENSORS, ParameterTensors};
@@ -49,26 +50,6 @@ impl GPT2Config {
         }
     }
 
-    /*
-
-        // Allocate space for all the parameters and read them in
-        param_sizes[0] = padded_vocab_size * channels; // wte
-        param_sizes[1] = max_seq_len * channels; // wpe
-        param_sizes[2] = num_layers * channels; // ln1w
-        param_sizes[3] = num_layers * channels; // ln1b
-        param_sizes[4] = num_layers * (3 * channels) * channels; // qkvw
-        param_sizes[5] = num_layers * (3 * channels); // qkvb
-        param_sizes[6] = num_layers * channels * channels; // attprojw
-        param_sizes[7] = num_layers * channels; // attprojb
-        param_sizes[8] = num_layers * channels; // ln2w
-        param_sizes[9] = num_layers * channels; // ln2b
-        param_sizes[10] = num_layers * (4 * channels) * channels; // fcw
-        param_sizes[11] = num_layers * (4 * channels); // fcb
-        param_sizes[12] = num_layers * channels * (4 * channels); // fcprojw
-        param_sizes[13] = num_layers * channels; // fcprojb
-        param_sizes[14] = channels; // lnfw
-        param_sizes[15] = channels; // lnfb
-    */
     fn get_params_sizes(&self) -> [usize; NUM_PARAMETER_TENSORS] {
         let mut param_sizes = [0; NUM_PARAMETER_TENSORS];
         let config = self;
@@ -142,10 +123,10 @@ pub struct GPT2<'ctx, NS: GpuCtxSpace> {
     pub grads: Option<ParameterTensors<'ctx, NS>>,
 
     /// Buffer for the AdamW optimizer.
-    pub m_memory: Option<TensorSlice<'ctx, f32, NS>>,
+    pub m_memory: Option<TensorSliceMut<'ctx, f32, NS>>,
 
     /// Buffer for the AdamW optimizer.
-    pub v_memory: Option<TensorSlice<'ctx, f32, NS>>,
+    pub v_memory: Option<TensorSliceMut<'ctx, f32, NS>>,
 
     /// The activations of the model.
     pub acts: Option<ActivationTensors<'ctx, NS>>,
@@ -163,13 +144,15 @@ pub struct GPT2<'ctx, NS: GpuCtxSpace> {
     pub seq_len: usize,
 
     /// The input tokens for the current forward pass
-    pub inputs: Option<TensorSlice<'ctx, i32, NS>>,
+    pub inputs: Option<TensorSliceMut<'ctx, i32, NS>>,
 
     /// The target tokens for the current forward pass
-    pub targets: Option<TensorSlice<'ctx, i32, NS>>,
+    pub targets: Option<TensorSliceMut<'ctx, i32, NS>>,
 
     /// After a forward pass with targets, will be populated with the mean loss
     pub mean_loss: f32,
+
+    pub cpu_losses: Option<PinnedHostBox<'ctx, [f32]>>,
 }
 
 impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
@@ -216,12 +199,12 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         let padded_vocab_size = model_header[7] as usize;
 
         let config = GPT2Config {
-            max_seq_len: max_seq_len,
-            vocab_size: vocab_size,
-            padded_vocab_size: padded_vocab_size,
-            num_layers: num_layers,
-            num_heads: num_heads,
-            channels: channels,
+            max_seq_len,
+            vocab_size,
+            padded_vocab_size,
+            num_layers,
+            num_heads,
+            channels,
         };
         println!("[GPT-2]");
         println!("max_seq_len: {}", max_seq_len);
@@ -256,6 +239,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             inputs: None,
             targets: None,
             mean_loss: -1.0,
+            cpu_losses: None,
         })
     }
 
@@ -269,36 +253,42 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     ) {
         assert!(inputs.len() >= batch_size * seq_len);
         assert!(targets.len() >= batch_size * seq_len);
-        assert!(
-            inputs
-                .iter()
-                .all(|&x| 0 <= x && (x as usize) < self.config.vocab_size)
-        );
-        assert!(
-            targets
-                .iter()
-                .all(|&x| 0 <= x && (x as usize) < self.config.vocab_size)
-        );
+        assert!(inputs.iter().all(|&x| 0 <= x && (x as usize) < self.config.vocab_size));
+        assert!(targets.iter().all(|&x| 0 <= x && (x as usize) < self.config.vocab_size));
 
         // allocate space for all the activations if needed (done here, lazily)
         if self.acts.is_none() {
             let act_sizes = self.config.get_act_sizes(batch_size, seq_len);
-            self.acts = Some(ActivationTensors::new(
-                ctx,
-                act_sizes,
-                &vec![0.0f32; act_sizes.iter().sum()],
-            ));
+            self.num_activations = act_sizes.iter().sum();
+            self.acts =
+                Some(ActivationTensors::new(ctx, act_sizes, &vec![0.0f32; self.num_activations]));
+            println!(
+                "allocated {} MiB for activations",
+                (self.num_activations * std::mem::size_of::<f32>()) / (1024 * 1024)
+            );
+
+            // also create memory for caching inputs and targets
             assert!(self.inputs.is_none());
-            self.inputs = Some(
-                ctx.new_tensor_slice(&inputs[0..batch_size * seq_len])
-                    .unwrap(),
-            );
+            self.inputs = Some(ctx.new_tensor_slice(&inputs[0..batch_size * seq_len]).unwrap());
             assert!(self.targets.is_none());
-            self.targets = Some(
-                ctx.new_tensor_slice(&targets[0..batch_size * seq_len])
-                    .unwrap(),
-            );
+            self.targets = Some(ctx.new_tensor_slice(&targets[0..batch_size * seq_len]).unwrap());
+        } else {
+            // validate B,T is consistent with how we've allocated the memory before
+            assert!(self.batch_size == batch_size);
+            assert!(self.seq_len == seq_len);
         }
+
+        // Sync losses from GPU to CPU
+        let acts = self.acts.as_mut().unwrap().inner(ctx);
+
+        if self.cpu_losses.is_none() {
+            let cpu_losses = PinnedHostBox::new_from_tensor(ctx, &acts.losses).unwrap();
+        } else {
+            acts.losses
+                .copy_to_host(self.cpu_losses.as_mut().unwrap(), acts.losses.len(), ctx)
+                .unwrap();
+        }
+
         unimplemented!()
     }
 }

@@ -8,3 +8,4 @@ memmap2 = {version = "0.9.8"}
 cudarc = {version = "0.17", features = ["cuda-12090"]}
 clap = { version = "4.2", features = ["derive"] }
 gpu_host = {path = "../../crates/gpu-host"}
+llm-rs-gpu = {path = "../../examples/llm-rs-gpu"}
