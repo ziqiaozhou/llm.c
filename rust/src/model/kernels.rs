@@ -2,19 +2,6 @@ use gpu::float4;
 use gpu_host::{CudaMemSlice, GpuCtxGuard, GpuCtxSpace, GpuModule};
 use llm_rs_gpu::*;
 
-/*
-void encoder_forward(float* out,
-                     const int* inp, const float* wte, const float* wpe,
-                     int B, int T, int C) {
-    assert(C % 4 == 0);
-    const int block_size = 512;
-    const int N = B * T * C;
-    const int grid_size = CEIL_DIV(N / 4, block_size);
-    encoder_forward_kernel3<<<grid_size, block_size>>>((float4*) out, inp, (float4*) wte, (float4*) wpe, B, T, C);
-    cudaCheck(cudaGetLastError());
-}
-*/
-
 pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
@@ -49,20 +36,6 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
         channel as _,
     )
     .expect("Failed to run encoder_forward_kernel3");
-
-    /*encoder_forward_kernel3::launch(
-        config,
-        ctx,
-        m,
-        out,
-        inp,
-        wte,
-        wpe,
-        batch_size as _,
-        seq_len as _,
-        channel as _,
-    )
-    .expect("failed to launch encoder_forward_kernel");*/
 }
 
 /*

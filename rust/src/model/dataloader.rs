@@ -110,6 +110,7 @@ impl<'a> DataLoader<'a> {
         } else {
             current_tokens
         };
+        // convert u16 to i32
         let inputs =
             current_tokens[..self.size_per_batch - 1].iter().map(|&x| x as i32).collect::<Vec<_>>();
         let targets = current_tokens[1..].iter().map(|&x| x as i32).collect::<Vec<_>>();
