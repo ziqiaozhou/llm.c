@@ -10,12 +10,11 @@ use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, cuda_ctx};
 
-mod dataloader;
 mod model;
 mod tokenizer;
 
-use dataloader::DataLoader;
 use model::GPT2;
+use model::dataloader::DataLoader;
 
 macro_rules! top_path {
     ($p: literal) => {
@@ -36,9 +35,9 @@ struct Args {
     #[arg(default_value = "llm_rs.log")]
     output_log_file: String,
     #[arg(default_value_t = 4)]
-    batch_size: i32,
+    batch_size: usize,
     #[arg(default_value_t = 1024)]
-    seq_length: i32,
+    seq_length: usize,
     #[arg(default_value_t = 3e-4)]
     learning_rate: f32,
     #[arg(default_value_t = 20)]
@@ -94,7 +93,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         );
     }
     println!("cublas handle: {:?}, TF32: {}", cublas_handle, enable_tf32);
-    let model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
+    let mut model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
     println!("| max_sequence_length T | %{} |\n", model.config.max_seq_len);
@@ -141,13 +140,8 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
             let mut val_loss = 0.0f32;
             val_loader.reset();
             for _ in 0..val_num_batches {
-                val_loader.next_batch();
-                /*model.forward(
-                    val_loader.inputs,
-                    val_loader.targets,
-                    args.batch_size,
-                    args.seq_length,
-                );*/
+                let (input, target) = val_loader.next_batch();
+                model.forward(ctx, &input, &target, args.batch_size, args.seq_length);
                 val_loss += model.mean_loss;
             }
             val_loss /= val_num_batches as f32;

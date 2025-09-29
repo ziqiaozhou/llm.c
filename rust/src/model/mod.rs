@@ -5,11 +5,12 @@ use std::path::Path;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, PinnedHostBox, TensorSliceMut};
 use memmap2::Mmap;
 
+pub(crate) mod dataloader;
 mod kernels;
-mod params;
+pub(crate) mod params;
 
+use dataloader::parse_header_data;
 use kernels::*;
-
 use params::{ActivationTensors, NUM_PARAMETER_TENSORS, ParameterTensors};
 
 use crate::model::params::NUM_ACTIVATION_TENSORS;
@@ -178,20 +179,9 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             panic!("Error opening model file: {:?}", checkpoint_path);
         });
         let model_data = unsafe { Mmap::map(&model_file)? };
-
-        // Read model header
-        let model_len = model_data.len();
-        let model_header = model_data[0..256 * 4]
-            .chunks_exact(4)
-            .map(|chunk| i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect::<Vec<_>>();
-        assert!(model_header.len() == 256);
-        // Check magic number and version
-        if model_header[0] != 20240326 {
-            panic!("Bad magic model file");
-        }
+        let (model_header, cpu_params) = parse_header_data(&model_data, 20240326, 3);
         if model_header[1] != 3 {
-            panic!("Bad version in model file\n---> HINT: try to re-run `python train_gpt2.py`");
+            panic!("Bad version in model file");
         }
 
         // Read in hyperparameters
@@ -218,13 +208,11 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         println!("num_heads: {}", num_heads);
         println!("channels: {}", channels);
 
-        let bytes = &model_data[256 * 4..model_len];
         let param_sizes = config.get_params_sizes();
         // Count the number of parameters
         let num_parameters: usize = param_sizes.iter().sum();
         println!("num_parameters: {}", num_parameters);
-        let cpu_params =
-            unsafe { slice::from_raw_parts(bytes.as_ptr() as *const f32, num_parameters) };
+        let cpu_params = &cpu_params[0..num_parameters];
         let params: ParameterTensors<'ctx, NS> =
             ParameterTensors::new(ctx, param_sizes, cpu_params);
 
@@ -258,8 +246,12 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     ) {
         assert!(inputs.len() >= batch_size * seq_len);
         assert!(targets.len() >= batch_size * seq_len);
-        assert!(inputs.iter().all(|&x| 0 <= x && (x as usize) < self.config.vocab_size));
-        assert!(targets.iter().all(|&x| 0 <= x && (x as usize) < self.config.vocab_size));
+        inputs
+            .iter()
+            .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
+        targets
+            .iter()
+            .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
 
         // allocate space for all the activations if needed (done here, lazily)
         if self.acts.is_none() {

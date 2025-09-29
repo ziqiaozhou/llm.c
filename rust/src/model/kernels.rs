@@ -14,6 +14,7 @@ void encoder_forward(float* out,
     cudaCheck(cudaGetLastError());
 }
 */
+
 pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
@@ -29,10 +30,12 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
     let n = batch_size * seq_len * channel;
     const BSIZE: usize = 512;
     let grid_size = (n / 4).div_ceil(BSIZE);
+    println!("encoder_forward grid size: {}", grid_size);
     let config = gpu_host::gpu_config!(grid_size as u32, 0, 0, @const BSIZE as u32, 0, 0, 0);
     let out = unsafe { &mut *(out as *mut _ as *mut CudaMemSlice<float4, CN>) };
     let wte = unsafe { &*(wte as *const _ as *const CudaMemSlice<float4, CN>) };
     let wpe = unsafe { &*(wpe as *const _ as *const CudaMemSlice<float4, CN>) };
+    let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
     encoder_forward_kernel3::launch(
         config,
         ctx,
@@ -45,7 +48,21 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
         seq_len as _,
         channel as _,
     )
-    .expect("failed to launch encoder_forward_kernel");
+    .expect("Failed to run encoder_forward_kernel3");
+
+    /*encoder_forward_kernel3::launch(
+        config,
+        ctx,
+        m,
+        out,
+        inp,
+        wte,
+        wpe,
+        batch_size as _,
+        seq_len as _,
+        channel as _,
+    )
+    .expect("failed to launch encoder_forward_kernel");*/
 }
 
 /*

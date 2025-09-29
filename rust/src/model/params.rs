@@ -3,30 +3,32 @@ use gpu_host::{GpuCtxSpace, TensorSliceMut};
 macro_rules! new_tensors {
     (
         pub const $param_len: ident: usize = $len: literal;
-        pub struct $name_tensor:ident<'ctx, NS: GpuCtxSpace>;
+        pub struct $name_tensor:ident<'ctx, NS: GpuCtxSpace> {
+            pub tensor: TensorSliceMut<'ctx, $elem_ty: ty, NS>,
+        }
         pub struct $name:ident<'ctx, NS: GpuCtxSpace> {
             $(
                 $(#[$doc:meta])*
-                pub $field:ident : TensorSliceMut<'ctx, f32, NS>,
+                pub $field:ident : TensorSliceMut<'ctx, $_elem_ty: ty, NS>,
             )*
         }
     ) => {
         pub const $param_len: usize = $len;
 
         pub struct $name_tensor<'ctx, NS: GpuCtxSpace> {
-            pub tensor: TensorSliceMut<'ctx, f32, NS>,
+            pub tensor: TensorSliceMut<'ctx, $elem_ty, NS>,
             pub param_sizes: [usize; $param_len],
         }
 
         pub struct $name<'ctx, NS: GpuCtxSpace> {
             $(
                 $(#[$doc])*
-                pub $field: TensorSliceMut<'ctx, f32, NS>,
+                pub $field: TensorSliceMut<'ctx, $elem_ty, NS>,
             )*
         }
 
         impl<'ctx, NS: GpuCtxSpace> $name_tensor<'ctx, NS> {
-            pub fn new(ctx: &'ctx gpu_host::GpuCtxGuard<'ctx, '_, NS>, param_sizes: [usize; $param_len], init: &[f32]) -> Self {
+            pub fn new(ctx: &'ctx gpu_host::GpuCtxGuard<'ctx, '_, NS>, param_sizes: [usize; $param_len], init: &[$elem_ty]) -> Self {
                 let tensor = ctx.new_tensor_slice(init).unwrap();
                 $name_tensor { tensor, param_sizes }
             }
@@ -56,7 +58,9 @@ macro_rules! new_tensors {
 
 new_tensors! {
 pub const NUM_PARAMETER_TENSORS: usize = 16;
-pub struct ParameterTensors<'ctx, NS: GpuCtxSpace>;
+pub struct ParameterTensors<'ctx, NS: GpuCtxSpace> {
+    pub tensor: TensorSliceMut<'ctx, f32, NS>,
+}
 pub struct ParameterTensorsInner<'ctx, NS: GpuCtxSpace> {
     /// Token embeddings (V, C).
     pub wte: TensorSliceMut<'ctx, f32, NS>,
@@ -111,7 +115,9 @@ pub struct ParameterTensorsInner<'ctx, NS: GpuCtxSpace> {
 new_tensors! {
 pub const NUM_ACTIVATION_TENSORS: usize = 23;
 
-pub struct ActivationTensors<'ctx, NS: GpuCtxSpace>;
+pub struct ActivationTensors<'ctx, NS: GpuCtxSpace> {
+    pub tensor: TensorSliceMut<'ctx, f32, NS>,
+}
 
 pub struct ActivationTensorsInner<'ctx, NS: GpuCtxSpace> {
     /// Encoded (B, T, C)
@@ -182,5 +188,16 @@ pub struct ActivationTensorsInner<'ctx, NS: GpuCtxSpace> {
 
     /// Losses (B, T)
     pub losses: TensorSliceMut<'ctx, f32, NS>,
+}
+}
+
+new_tensors! {
+pub const NUM_BATCH_TENSORS: usize = 2;
+pub struct BatchTensor<'ctx, NS: GpuCtxSpace> {
+    pub tensor: TensorSliceMut<'ctx, i32, NS>,
+}
+pub struct BatchTensorInner<'ctx, NS: GpuCtxSpace> {
+    pub input: TensorSliceMut<'ctx, i32, NS>,
+    pub target: TensorSliceMut<'ctx, i32, NS>,
 }
 }
