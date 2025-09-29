@@ -4,10 +4,7 @@ use std::slice;
 use std::slice::Chunks;
 use std::sync::Arc;
 
-use gpu_host::{GpuCtxGuard, GpuCtxSpace};
 use memmap2::Mmap;
-
-use super::params::BatchTensor;
 
 const HEADER_LEN: usize = 256;
 pub fn parse_header_data<'a, T>(

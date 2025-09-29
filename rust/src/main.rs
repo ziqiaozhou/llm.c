@@ -104,13 +104,8 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     println!("| channels C            | %{} |\n", model.config.channels);
     println!("| num_parameters        | %{} |\n", model.num_parameters);
     println!("+-----------------------+----------------------------------------------------+\n");
-    let train_loader = DataLoader::new(
-        &args.train_data_pattern,
-        args.batch_size as usize,
-        args.seq_length as usize,
-    );
-    let mut val_loader =
-        DataLoader::new(&args.val_data_pattern, args.batch_size as usize, args.seq_length as usize);
+    let train_loader = DataLoader::new(&args.train_data_pattern, args.batch_size, args.seq_length);
+    let mut val_loader = DataLoader::new(&args.val_data_pattern, args.batch_size, args.seq_length);
     let val_num_batches = if val_loader.num_batches > args.val_max_steps {
         args.val_max_steps
     } else {
@@ -128,7 +123,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
 
     // some memory for generating samples from the model
     let rng_state: u64 = 1337;
-    let mut gen_tokens = vec![0; args.batch_size as usize * args.seq_length as usize];
+    let mut gen_tokens = vec![0; args.batch_size * args.seq_length];
     let cpu_logits = vec![0.0f32; model.config.vocab_size];
 
     // train

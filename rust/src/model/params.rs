@@ -310,7 +310,7 @@ pub struct ActivationTensorsInner<'ctx, NS: GpuCtxSpace> {
     /// Losses (B, T)
     pub losses: TensorSliceMut<'ctx, f32, NS>,
     /// Query, Key, Value (L, B, T, 3*C)
-    pub qkv: TensorSliceMut<'ctx, f32, NS>,
+    pub qkvr: TensorSliceMut<'ctx, f32, NS>,
     pub output: TensorSliceMut<'ctx, f32, NS>, // (B, T, max(3*C, NH*T, V))
 }
 }

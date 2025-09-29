@@ -79,3 +79,54 @@ pub fn encoder_backward<'ctx, CN: GpuCtxSpace>(
     )
     .expect("failed to launch encoder_backward_kernel");
 }
+
+/*
+void layernorm_forward(float* out, float* mean, float* rstd,
+                       float* inp, float* weight, float* bias,
+                       int B, int T, int C) {
+    const int block_size = 512;
+    const int N = B * T;
+    const int grid_size = CEIL_DIV(N * 32, block_size);
+    layernorm_forward_kernel3<<<grid_size, block_size>>>(out, mean, rstd, inp, weight, bias, N, C);
+    cudaCheck(cudaGetLastError());
+}
+*/
+
+pub(crate) fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
+    ctx: &GpuCtxGuard<'ctx, '_, CN>,
+    m: &GpuModule<CN>,
+    out: &'ctx mut CudaMemSlice<f32, CN>,
+    mean: &'ctx mut CudaMemSlice<f32, CN>,
+    rstd: &'ctx mut CudaMemSlice<f32, CN>,
+    inp: &CudaMemSlice<f32, CN>,
+    weight: &CudaMemSlice<f32, CN>,
+    bias: &CudaMemSlice<f32, CN>,
+    batch_size: usize,
+    seq_len: usize,
+    channel: usize,
+) {
+    let n = batch_size * seq_len;
+    const BSIZE: usize = 512;
+    let grid_size = (n * 32).div_ceil(BSIZE);
+    let len = channel * n;
+    assert!(inp.len() == len);
+    assert!(out.len() == len);
+    assert!(mean.len() == n);
+    assert!(rstd.len() == n);
+    assert!(weight.len() == channel);
+    let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    layernorm_forward_kernel3::launch(
+        config,
+        ctx,
+        m,
+        out,
+        mean,
+        rstd,
+        inp,
+        weight,
+        bias,
+        n as _,
+        channel as _,
+    )
+    .expect("failed to launch layernorm_forward_kernel3");
+}

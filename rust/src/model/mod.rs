@@ -1,4 +1,3 @@
-use core::slice;
 use std::fs::File;
 use std::path::Path;
 
@@ -11,9 +10,7 @@ pub(crate) mod params;
 
 use dataloader::parse_header_data;
 use kernels::*;
-use params::{ActivationTensors, GPT2Config, NUM_PARAMETER_TENSORS, ParameterTensors};
-
-use crate::model::params::NUM_ACTIVATION_TENSORS;
+use params::{ActivationTensors, GPT2Config, ParameterTensors};
 
 pub struct GPT2<'ctx, NS: GpuCtxSpace> {
     pub module: &'ctx gpu_host::GpuModule<NS>,
@@ -62,6 +59,14 @@ pub struct GPT2<'ctx, NS: GpuCtxSpace> {
     pub cpu_losses: Option<PinnedHostBox<'ctx, [f32]>>,
 }
 
+macro_rules! next_layer_tensor {
+    ($ctx: ident, $params:ident, $size: expr) => {{
+        let (left, right) = $ctx.split_tensor_slice($params, $size).unwrap();
+        $params = right;
+        assert!(left.len() == $size);
+        left
+    }};
+}
 impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     /// Creates a new GPT-2 model instance from a checkpoint file.
     ///
@@ -195,6 +200,145 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             seq_len,
             self.config.channels,
         );
+
+        //for (int l = 0; l < L; l++) {
+        let mut residual3 = acts.residual3;
+        let mut residual = acts.encoded;
+        let mut ln1w = params.ln1w;
+        let mut ln1b = params.ln1b;
+        let mut qkvw = params.qkvw;
+        let mut qkvb = params.qkvb;
+        let mut attprojw = params.attprojw;
+        let mut attprojb = params.attprojb;
+        let mut ln2w = params.ln2w;
+        let mut ln2b = params.ln2b;
+        let mut fcw = params.fcw;
+        let mut fcb = params.fcb;
+        let mut fcprojw = params.fcprojw;
+        let mut fcprojb = params.fcprojb;
+
+        let mut ln1 = acts.ln1;
+        let mut ln1_mean = acts.ln1_mean;
+        let mut ln1_rstd = acts.ln1_rstd;
+        let mut qkvr = acts.qkvr;
+        let mut atty = acts.atty;
+        let mut att = acts.att;
+        let mut attproj = acts.attproj;
+        let mut residual2 = acts.residual2;
+        let mut ln2 = acts.ln2;
+        let mut ln2_mean = acts.ln2_mean;
+        let mut ln2_rstd = acts.ln2_rstd;
+        let mut fch = acts.fch;
+        let mut fch_gelu = acts.fch_gelu;
+        let mut fcproj = acts.fcproj;
+        let scratch = acts.output;
+
+        for l in 0..self.config.num_layers {
+            if l != 0 {
+                residual =
+                    next_layer_tensor!(ctx, residual3, batch_size * seq_len * self.config.channels)
+            };
+            /*
+            float* l_ln1w = params.ln1w + l * C;
+            float* l_ln1b = params.ln1b + l * C;
+            float* l_qkvw = params.qkvw + l * 3*C * C;
+            float* l_qkvb = params.qkvb + l * 3*C;
+            float* l_attprojw = params.attprojw + l * C * C;
+            float* l_attprojb = params.attprojb + l * C;
+            float* l_ln2w = params.ln2w + l * C;
+            float* l_ln2b = params.ln2b + l * C;
+            float* l_fcw = params.fcw + l * 4*C * C;
+            float* l_fcb = params.fcb + l * 4*C;
+            float* l_fcprojw = params.fcprojw + l * C * 4*C;
+            float* l_fcprojb = params.fcprojb + l * C;
+
+            // get the pointers of the activations for this layer
+            float* l_ln1 = acts.ln1 + l * B * T * C;
+            float* l_ln1_mean = acts.ln1_mean + l * B * T;
+            float* l_ln1_rstd = acts.ln1_rstd + l * B * T;
+            float* l_qkvr = acts.qkvr + l * B * T * 3*C;
+            float* l_atty = acts.atty + l * B * T * C;
+            float* l_att = acts.att + l * B * NH * T * T;
+            float* l_attproj = acts.attproj + l * B * T * C;
+            float* l_residual2 = acts.residual2 + l * B * T * C;
+            float* l_ln2 = acts.ln2 + l * B * T * C;
+            float* l_ln2_mean = acts.ln2_mean + l * B * T;
+            float* l_ln2_rstd = acts.ln2_rstd + l * B * T;
+            float* l_fch = acts.fch + l * B * T * 4*C;
+            float* l_fch_gelu = acts.fch_gelu + l * B * T * 4*C;
+            float* l_fcproj = acts.fcproj + l * B * T * C;
+            float* l_residual3 = acts.residual3 + l * B * T * C;
+            // these are only needed as scratchpads for the forward pass, but
+            // need not be stored for backward
+            float* scratch = acts.output;
+            */
+            let l_ln1w = next_layer_tensor!(ctx, ln1w, self.config.channels);
+            let l_ln1b = next_layer_tensor!(ctx, ln1b, self.config.channels);
+            let l_qkvw =
+                next_layer_tensor!(ctx, qkvw, 3 * self.config.channels * self.config.channels);
+            let l_qkvb = next_layer_tensor!(ctx, qkvb, 3 * self.config.channels);
+            let l_attprojw =
+                next_layer_tensor!(ctx, attprojw, self.config.channels * self.config.channels);
+            let l_attprojb = next_layer_tensor!(ctx, attprojb, self.config.channels);
+            let l_ln2w = next_layer_tensor!(ctx, ln2w, self.config.channels);
+            let l_ln2b = next_layer_tensor!(ctx, ln2b, self.config.channels);
+            let l_fcw =
+                next_layer_tensor!(ctx, fcw, 4 * self.config.channels * self.config.channels);
+            let l_fcb = next_layer_tensor!(ctx, fcb, 4 * self.config.channels);
+            let l_fcprojw =
+                next_layer_tensor!(ctx, fcprojw, self.config.channels * 4 * self.config.channels);
+            let l_fcprojb = next_layer_tensor!(ctx, fcprojb, self.config.channels);
+
+            let l_ln1 = next_layer_tensor!(ctx, ln1, batch_size * seq_len * self.config.channels);
+            let l_ln1_mean = next_layer_tensor!(ctx, ln1_mean, batch_size * seq_len);
+            let l_ln1_rstd = next_layer_tensor!(ctx, ln1_rstd, batch_size * seq_len);
+            let l_qkvr =
+                next_layer_tensor!(ctx, qkvr, batch_size * seq_len * 3 * self.config.channels);
+            let l_atty = next_layer_tensor!(ctx, atty, batch_size * seq_len * self.config.channels);
+            let l_att = next_layer_tensor!(
+                ctx,
+                att,
+                batch_size * self.config.num_heads * seq_len * seq_len
+            );
+            let l_attproj =
+                next_layer_tensor!(ctx, attproj, batch_size * seq_len * self.config.channels);
+            let l_residual2 =
+                next_layer_tensor!(ctx, residual2, batch_size * seq_len * self.config.channels);
+            let l_ln2 = next_layer_tensor!(ctx, ln2, batch_size * seq_len * self.config.channels);
+            let l_ln2_mean = next_layer_tensor!(ctx, ln2_mean, batch_size * seq_len);
+            let l_ln2_rstd = next_layer_tensor!(ctx, ln2_rstd, batch_size * seq_len);
+            let l_fch =
+                next_layer_tensor!(ctx, fch, batch_size * seq_len * 4 * self.config.channels);
+            let l_fch_gelu =
+                next_layer_tensor!(ctx, fch_gelu, batch_size * seq_len * 4 * self.config.channels);
+            let l_fcproj =
+                next_layer_tensor!(ctx, fcproj, batch_size * seq_len * self.config.channels);
+
+            /*
+            matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
+            attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
+            matmul_forward(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C);
+            residual_forward(l_residual2, residual, l_attproj, B*T*C);
+            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C);
+            matmul_forward(l_fch, l_ln2, l_fcw, l_fcb, B, T, C, 4*C);
+            gelu_forward(l_fch_gelu, l_fch, B*T*4*C);
+            matmul_forward(l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4*C, C);
+            residual_forward(l_residual3, l_residual2, l_fcproj, B*T*C);
+            */
+            layernorm_forward(
+                ctx,
+                self.module,
+                l_ln1,
+                l_ln1_mean,
+                l_ln1_rstd,
+                residual,
+                l_ln1w,
+                l_ln1b,
+                batch_size,
+                seq_len,
+                self.config.channels,
+            );
+        }
 
         if self.cpu_losses.is_none() {
             println!("acts.losses len = {}", acts.losses.len());
