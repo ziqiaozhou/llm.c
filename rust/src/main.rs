@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 
 use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
-use gpu_host::{GpuCtxZeroGuard, cuda_ctx_no_mod};
+use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, cuda_ctx};
 
 mod dataloader;
 mod model;
@@ -55,8 +55,8 @@ fn main() {
     let args = Args::parse();
     println!("params: {args:?}");
     eprintln!("WARNING: the code is currently broken, please ignore this run");
-    cuda_ctx_no_mod(0, |ctx| {
-        llm_rs_run(ctx, &args);
+    cuda_ctx(0, |ctx, m| {
+        llm_rs_run(ctx, m, &args);
     });
 }
 
@@ -71,7 +71,11 @@ pub struct UnsafeCudaContext {
     pub(crate) error_state: AtomicU32,
 }
 
-fn llm_rs_run<'ctx, 'a>(ctx: &GpuCtxZeroGuard<'ctx, 'a>, args: &Args) {
+fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
+    ctx: &GpuCtxGuard<'ctx, 'a, NS>,
+    m: &GpuModule<NS>,
+    args: &Args,
+) {
     let mut handle = MaybeUninit::uninit();
     let cublas_handle = unsafe {
         cublas_sys::cublasCreate_v2(handle.as_mut_ptr());
@@ -90,7 +94,7 @@ fn llm_rs_run<'ctx, 'a>(ctx: &GpuCtxZeroGuard<'ctx, 'a>, args: &Args) {
         );
     }
     println!("cublas handle: {:?}, TF32: {}", cublas_handle, enable_tf32);
-    let model = GPT2::new(ctx, &args.model_path).unwrap_or_else(|_| {
+    let model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
     println!("| max_sequence_length T | %{} |\n", model.config.max_seq_len);

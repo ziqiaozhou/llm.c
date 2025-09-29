@@ -8,6 +8,8 @@ use memmap2::Mmap;
 mod kernels;
 mod params;
 
+use kernels::*;
+
 use params::{ActivationTensors, NUM_PARAMETER_TENSORS, ParameterTensors};
 
 use crate::model::params::NUM_ACTIVATION_TENSORS;
@@ -110,6 +112,7 @@ impl GPT2Config {
 }
 
 pub struct GPT2<'ctx, NS: GpuCtxSpace> {
+    pub module: &'ctx gpu_host::GpuModule<NS>,
     /// Model configuration.
     pub config: GPT2Config,
 
@@ -167,6 +170,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
     /// A new `GPT2` model instance.
     pub fn new<'ctx_a: 'ctx>(
         ctx: &'ctx GpuCtxGuard<'ctx_a, '_, NS>,
+        m: &'ctx gpu_host::GpuModule<NS>,
         checkpoint_path: &Path,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Read model from a checkpoint file
@@ -226,6 +230,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
 
         Ok(GPT2 {
             config,
+            module: m,
             num_parameters,
             params,
             grads: None,
@@ -280,6 +285,21 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
 
         // Sync losses from GPU to CPU
         let acts = self.acts.as_mut().unwrap().inner(ctx);
+        let params = self.params.inner(ctx);
+        let inputs = self.inputs.as_ref().unwrap();
+        let targets = self.targets.as_ref().unwrap();
+        //acts.encoded, model->inputs, params.wte, params.wpe
+        encoder_forward(
+            ctx,
+            self.module,
+            acts.encoded,
+            inputs,
+            params.wte,
+            params.wpe,
+            batch_size,
+            seq_len,
+            self.config.channels,
+        );
 
         if self.cpu_losses.is_none() {
             let cpu_losses = PinnedHostBox::new_from_tensor(ctx, &acts.losses).unwrap();
