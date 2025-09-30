@@ -5,11 +5,11 @@
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
-use rand::Rng;
 
 use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, cuda_ctx};
+use rand::Rng;
 
 #[macro_use]
 mod model;
@@ -83,11 +83,11 @@ pub fn sample_softmax(logits: &[f32], coin: f32) -> i32 {
     let norm: f64 = logits.iter().map(|&x| (x as f64).exp()).sum();
 
     // scale the coin
-    let mut coin = coin as f64 * norm;
+    let mut coin = coin * norm as f32;
 
-    let mut cdf = 0.0f64;
+    let mut cdf = 0.0f32;
     for (i, &x) in logits.iter().enumerate() {
-        cdf += (x as f64).exp();
+        cdf += x.exp();
         if coin < cdf {
             return i as i32;
         }
@@ -107,7 +107,6 @@ pub fn safe_print(piece: &str) {
 
     print!("{piece}");
 }
-
 
 fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, 'a, NS>,
@@ -197,7 +196,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         }
 
         // once in a while do model inference to print generated text
-        if (step > 0 && step % args.sample_every == 0) || last_step {
+        if (step >= 0 && step % args.sample_every == 0) || last_step {
             // fill up gen_tokens with the GPT2_EOT, which kicks off the generation
             gen_tokens.iter_mut().for_each(|t| *t = GPT2_EOT); // GPT2_EOT
             // now sample from the model autoregressively
@@ -207,7 +206,14 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 // we re-calculate the forward pass for all of (B,T) positions from scratch
                 // but the inference here is just for sanity checking anyway
                 // and we can maybe optimize a bit more later, with careful tests
-                model.forward(ctx, cublas_handle, &gen_tokens, &[], args.batch_size, args.seq_length);
+                model.forward(
+                    ctx,
+                    cublas_handle,
+                    &gen_tokens,
+                    &[],
+                    args.batch_size,
+                    args.seq_length,
+                );
                 // furthermore, below we're only using b=0 (i.e. the first row) of all B rows
                 // we're in principle running B "inference streams" in parallel here
                 // only using position 0 because it's a bit faster (copy less probs from GPU -> CPU)
@@ -218,10 +224,10 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 let cpu_logits_len = cpu_logits.len();
                 logits.copy_to_host(&mut cpu_logits, cpu_logits_len, ctx).unwrap();
                 // float coin = random_f32(&rng_state);
-                let coin = 0.5;//rng.gen_range(0.0..1.0);
+                let coin = 0.5; //rng.gen_range(0.0..1.0);
                 let next_token = sample_softmax(&cpu_logits, coin);
                 gen_tokens[t] = next_token;
-
+                //println!("next token: {}\n", next_token);
                 if tokenizer.init_ok {
                     let token_str = tokenizer.decode(next_token as u32);
                     safe_print(token_str);

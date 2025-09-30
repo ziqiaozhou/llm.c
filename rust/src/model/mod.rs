@@ -116,6 +116,10 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         let num_parameters: usize = param_sizes.iter().sum();
         println!("num_parameters: {}", num_parameters);
         let cpu_params = &cpu_params[0..num_parameters];
+        println!("cpu_params\n");
+        for i in 0..1000 {
+            print!("{:.9} ", cpu_params[i]);
+        }
         let params: ParameterTensors<'ctx, NS> =
             ParameterTensors::new(ctx, param_sizes, cpu_params);
 
@@ -210,8 +214,8 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         //acts.encoded, model->inputs, params.wte, params.wpe
         encoder_forward(ctx, m, acts.encoded, inputs, params.wte, params.wpe, bsize, seq, ch);
 
-        // let out_len = acts.output.len();
-        //let mut d_output = vec![0.0f32; out_len];
+        let out_len = acts.output.len();
+        let mut d_output = vec![0.0f32; out_len];
         let mut residual3 = acts.residual3;
         let residual3_base = residual3.as_devptr();
         let mut residual = acts.encoded;
@@ -322,11 +326,21 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             layernorm_forward(
                 ctx, m, l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, bsize, seq, ch,
             );
+            // residual == residual
+            // l_ln1w == l_ln1w
+            // l_ln1_rstd!= l_ln1_rstd
+            /*l_ln1.copy_to_host(&mut d_output, 200, ctx).unwrap();
+            for k in 0..20 {
+                for i in 0..10 {
+                    print!("{:.9} ", &d_output[k * 10 + i]);
+                }
+                print!("\n")
+            }
+            print!("\n");
+            panic!();*/
             // matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
             matmul_forward(ctx, m, scratch, l_ln1, l_qkvw, l_qkvb, bsize, seq, ch, 3 * ch);
-            /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
-            println!("matmul_forward d_output[0..100] = {:?}", &d_output[0..100]);
-            */
+            
             attention_forward(
                 ctx,
                 m,
@@ -340,10 +354,17 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
                 ch,
                 nh,
             );
-            /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
-            println!("attention_forward d_output[0..100] = {:?}", &d_output[0..100]);
-            panic!();
-            */
+
+            /*l_qkvr.copy_to_host(&mut d_output, 200, ctx).unwrap();
+            for k in 0..20 {
+                for i in 0..10 {
+                    print!("{:.9} ", &d_output[k * 10 + i]);
+                }
+                print!("\n")
+            }
+            print!("\n");
+            panic!();*/
+
             matmul_forward(ctx, m, l_attproj, l_atty, l_attprojw, l_attprojb, bsize, seq, ch, ch);
             residual_forward(ctx, m, l_res2, residual, l_attproj, bsize * seq * ch);
             layernorm_forward(
@@ -351,6 +372,34 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             );
             matmul_forward(ctx, m, l_fch, l_ln2, l_fcw, l_fcb, bsize, seq, ch, 4 * ch);
             gelu_forward(ctx, m, l_fch_gelu, l_fch, bsize * seq * 4 * ch);
+
+            // l_fch == l_fch
+            // l_fch_gelu != l_fch_gelu, f32 reorder cause difference
+            /*if l == 0 {
+                let GELU_SCALING_FACTOR: f32 = (2.0f32 / core::f32::consts::PI).sqrt();
+                println!("GELU_SCALING_FACTOR = {:.9}\n", GELU_SCALING_FACTOR);
+                println!("after attention layer {}", l);
+                l_fch.copy_to_host(&mut d_output, 500, ctx).unwrap();
+                for k in 0..20 {
+                    for i in 0..10 {
+                        print!("{:.12} ", &d_output[k * 10 + i + 300]);
+                    }
+                    print!("\n")
+                }
+                print!("\n");
+                print!("\n");
+                l_fch_gelu.copy_to_host(&mut d_output, 500, ctx).unwrap();
+                for k in 0..20 {
+                    for i in 0..10 {
+                        print!("{:.12} ", &d_output[k * 10 + i + 300]);
+                    }
+                    print!("\n")
+                }
+                print!("\n");
+                print!("\n");
+
+                panic!();
+            }*/
             matmul_forward(
                 ctx,
                 m,
@@ -366,6 +415,14 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             residual_forward(ctx, m, l_residual3, l_res2, l_fcproj, bsize * seq * ch);
             residual = l_residual3;
         }
+        /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
+        for k in 0..20 {
+            for i in 0..10 {
+                print!("{:.9} ", &d_output[k * 10 + i]);
+            }
+            print!("\n")
+        }
+        panic!();*/
         /*
         residual = acts.residual3 + (L-1) * B * T * C; // last residual is in residual3
         layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, residual, params.lnfw, params.lnfb, B, T, C);
@@ -393,6 +450,14 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             self.mean_loss = -1.0;
             return;
         }
+        /*output.copy_to_host(&mut d_output, out_len, ctx).unwrap();
+        for k in 0..20 {
+            for i in 0..10 {
+                print!("{:.17} ", &d_output[k * 10 + i]);
+            }
+            print!("\n")
+        }
+        panic!();*/
         fused_classifier3(
             ctx,
             m,
