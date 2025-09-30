@@ -155,7 +155,6 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         let bsize = batch_size;
         let pad_vocab = self.config.padded_vocab_size;
         assert!(cpu_inputs.len() >= bsize * seq);
-        assert!(cpu_targets.len() >= bsize * seq);
         cpu_inputs
             .iter()
             .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));

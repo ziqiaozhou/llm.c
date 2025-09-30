@@ -34,7 +34,6 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
     let n = batch_size * seq_len * channel;
     const BSIZE: usize = 512;
     let grid_size = (n / 4).div_ceil(BSIZE);
-    println!("encoder_forward grid size: {}", grid_size);
     let config = gpu_host::gpu_config!(grid_size as u32, 0, 0, @const BSIZE as u32, 0, 0, 0);
     let out = unsafe { &mut *(out as *mut _ as *mut CudaMemSlice<float4, CN>) };
     let wte = unsafe { &*(wte as *const _ as *const CudaMemSlice<float4, CN>) };

@@ -5,11 +5,13 @@
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
+use rand::Rng;
 
 use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, cuda_ctx};
 
+#[macro_use]
 mod model;
 mod tokenizer;
 
@@ -21,6 +23,7 @@ macro_rules! top_path {
         concat!(env!("CARGO_MANIFEST_DIR"), "/../", $p)
     };
 }
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Name of the user
@@ -46,7 +49,7 @@ struct Args {
     val_max_steps: usize,
     #[arg(default_value_t = 1)]
     sample_every: usize,
-    #[arg(default_value_t = 1)]
+    #[arg(default_value_t = 64)]
     gen_t: usize,
 }
 
@@ -69,11 +72,49 @@ pub struct UnsafeCudaContext {
     pub(crate) error_state: AtomicU32,
 }
 
+const GPT2_EOT: i32 = 50256;
+
+pub fn sample_softmax(logits: &[f32], coin: f32) -> i32 {
+    // coin should be in [0, 1)
+    assert!(!logits.is_empty());
+    assert!((0.0..1.0).contains(&coin));
+
+    // compute normalization factor
+    let norm: f64 = logits.iter().map(|&x| (x as f64).exp()).sum();
+
+    // scale the coin
+    let mut coin = coin as f64 * norm;
+
+    let mut cdf = 0.0f64;
+    for (i, &x) in logits.iter().enumerate() {
+        cdf += (x as f64).exp();
+        if coin < cdf {
+            return i as i32;
+        }
+    }
+    logits.len() as i32 - 1 // fallback in case of rounding
+}
+
+pub fn safe_print(piece: &str) {
+    // handle single-byte tokens specially
+    if piece.len() == 1 {
+        let b = piece.as_bytes()[0];
+        if !b.is_ascii_graphic() && !b.is_ascii_whitespace() {
+            print!("{piece}");
+            return; // skip non-printable
+        }
+    }
+
+    print!("{piece}");
+}
+
+
 fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, 'a, NS>,
     m: &GpuModule<NS>,
     args: &Args,
 ) {
+    let mut rng = rand::rng();
     let cublas_handle = {
         let mut handle = MaybeUninit::uninit();
         unsafe {
@@ -97,6 +138,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     let mut model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
+    let padded_vocab_size = model.config.padded_vocab_size;
     println!("| max_sequence_length T | {} |\n", model.config.max_seq_len);
     println!("| vocab_size V          | {} |\n", model.config.vocab_size);
     println!("| padded_vocab_size Vp  | {} |\n", model.config.padded_vocab_size);
@@ -122,12 +164,12 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         (model.num_parameters * std::mem::size_of::<f32>()) / (1024 * 1024)
     );
 
-    let tokenizer = tokenizer::Tokenizer::new(&args.tokenizer_path);
+    let mut tokenizer = tokenizer::Tokenizer::new(&args.tokenizer_path);
 
     // some memory for generating samples from the model
     let rng_state: u64 = 1337;
-    let mut gen_tokens = vec![0; args.batch_size * args.seq_length];
-    let cpu_logits = vec![0.0f32; model.config.vocab_size];
+    let mut gen_tokens = vec![0i32; args.batch_size * args.seq_length];
+    let mut cpu_logits = vec![0.0f32; model.config.vocab_size];
 
     // train
     for step in 0..=train_loader.num_batches {
@@ -157,7 +199,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         // once in a while do model inference to print generated text
         if (step > 0 && step % args.sample_every == 0) || last_step {
             // fill up gen_tokens with the GPT2_EOT, which kicks off the generation
-            gen_tokens.iter_mut().for_each(|t| *t = 50256); // GPT2_EOT
+            gen_tokens.iter_mut().for_each(|t| *t = GPT2_EOT); // GPT2_EOT
             // now sample from the model autoregressively
             println!("generating:\n---");
             for t in 1..args.gen_t {
@@ -165,19 +207,30 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 // we re-calculate the forward pass for all of (B,T) positions from scratch
                 // but the inference here is just for sanity checking anyway
                 // and we can maybe optimize a bit more later, with careful tests
-                //model.forward(&gen_tokens, None, args.batch_size, args.seq_length);
+                model.forward(ctx, cublas_handle, &gen_tokens, &[], args.batch_size, args.seq_length);
                 // furthermore, below we're only using b=0 (i.e. the first row) of all B rows
                 // we're in principle running B "inference streams" in parallel here
                 // only using position 0 because it's a bit faster (copy less probs from GPU -> CPU)
                 // get the V-dimensional vector probs[0, t-1, :]
-                /*let logits = model
-                    .acts
-                    .logits
-                    .ptr
-                    .wrapping_add((t - 1) * model.config.padded_vocab_size);
-                let logits = unsafe {
-                    std::slice::from_raw_parts(logits, model.config.padded_vocab_size as usize)
-                };*/
+                let acts = model.acts.as_mut().unwrap().inner(ctx);
+                let mut logits = acts.output;
+                let _ = next_tensor!(ctx, logits, (t - 1) * padded_vocab_size);
+                let cpu_logits_len = cpu_logits.len();
+                logits.copy_to_host(&mut cpu_logits, cpu_logits_len, ctx).unwrap();
+                // float coin = random_f32(&rng_state);
+                let coin = 0.5;//rng.gen_range(0.0..1.0);
+                let next_token = sample_softmax(&cpu_logits, coin);
+                gen_tokens[t] = next_token;
+
+                if tokenizer.init_ok {
+                    let token_str = tokenizer.decode(next_token as u32);
+                    safe_print(token_str);
+                } else {
+                    // fall back to printing the token id
+                    println!("{} ", next_token);
+                }
+                use std::io::Write;
+                std::io::stdout().flush().unwrap();
             }
         }
     }
