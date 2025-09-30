@@ -340,7 +340,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             panic!();*/
             // matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
             matmul_forward(ctx, m, scratch, l_ln1, l_qkvw, l_qkvb, bsize, seq, ch, 3 * ch);
-            
+
             attention_forward(
                 ctx,
                 m,
@@ -480,5 +480,14 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         assert!(mean_loss <= 4.6); // test the result is potentially correct.
         self.mean_loss = mean_loss;
         println!("mean loss: {}", mean_loss);
+    }
+
+    pub fn zero_grad(&mut self) {
+        if let Some(grads) = &mut self.grads {
+            grads.tensor.zero();
+        }
+        if let Some(grads_acts) = &mut self.grads_acts {
+            grads_acts.tensor.zero();
+        }
     }
 }

@@ -146,7 +146,8 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     println!("| channels C            | {} |\n", model.config.channels);
     println!("| num_parameters        | {} |\n", model.num_parameters);
     println!("+-----------------------+----------------------------------------------------+\n");
-    let train_loader = DataLoader::new(&args.train_data_pattern, args.batch_size, args.seq_length);
+    let mut train_loader =
+        DataLoader::new(&args.train_data_pattern, args.batch_size, args.seq_length);
     let mut val_loader = DataLoader::new(&args.val_data_pattern, args.batch_size, args.seq_length);
     /*
     int val_num_batches = val_loader.num_tokens / (B*T);
@@ -238,6 +239,14 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 use std::io::Write;
                 std::io::stdout().flush().unwrap();
             }
+            println!("\n---\n");
         }
+
+        if last_step {
+            break;
+        }
+
+        let (input, target) = train_loader.next_batch();
+        model.forward(ctx, cublas_handle, &input, &target, args.batch_size, args.seq_length);
     }
 }
