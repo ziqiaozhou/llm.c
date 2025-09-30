@@ -19,8 +19,6 @@ impl Tokenizer {
     ///
     /// A new `Tokenizer` instance.
     pub fn new(filename: &Path) -> Self {
-        let mut tokenizer = Tokenizer { vocab_size: 0, token_table: Vec::new(), init_ok: false };
-
         let mut file = match File::open(filename) {
             Ok(file) => file,
             Err(_) => {
@@ -34,7 +32,7 @@ impl Tokenizer {
             }
         };
 
-        let mut header = [0; 256];
+        let mut header = [0u32; 256];
         file.read_exact(unsafe {
             std::slice::from_raw_parts_mut(
                 header.as_mut_ptr() as *mut u8,
@@ -51,23 +49,20 @@ impl Tokenizer {
             panic!("Bad version in tokenizer file")
         }
 
-        tokenizer.vocab_size = header[2];
+        let vocab_size = header[2] as u32;
+        let mut token_table = vec![String::new(); vocab_size as usize];
 
-        for _ in 0..tokenizer.vocab_size {
+        for token in &mut token_table {
             let mut length = [0];
             file.read_exact(&mut length).expect("Failed to read token length");
 
             assert!(length[0] > 0); // Every token should be at least one character
             let mut token_bytes = vec![0u8; length[0] as usize];
             file.read_exact(&mut token_bytes).expect("Failed to read token bytes");
-            let token = String::from_utf8(token_bytes).unwrap_or_default();
-
-            tokenizer.token_table.push(token);
+            *token = String::from_utf8(token_bytes).unwrap_or_default();
         }
 
-        tokenizer.init_ok = true;
-
-        tokenizer
+        Tokenizer { vocab_size, token_table, init_ok: true }
     }
 
     /// Decodes a token ID into its corresponding string.
