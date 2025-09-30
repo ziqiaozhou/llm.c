@@ -126,7 +126,7 @@ pub(crate) fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
     const BSIZE: usize = 512;
     let grid_size = (n * 32).div_ceil(BSIZE);
     let len = channel * n;
-    assert!(inp.len() == len);
+    assert!(inp.len() == len, "{} != {}", inp.len(), len);
     assert!(out.len() == len);
     assert!(mean.len() == n);
     assert!(rstd.len() == n);
@@ -255,23 +255,16 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     channel: usize,
     num_heads: usize,
 ) {
+    const BSIZE: usize = 256;
     let head_size = channel / num_heads;
     assert!(channel % num_heads == 0);
     let total_threads = batch_size * num_heads * seq_len * head_size;
-    const BSIZE: usize = 256;
     let num_blocks = total_threads.div_ceil(BSIZE);
     let mut qkvr = qkvr;
-    /*q = qkvr + 0 * B * T * C;
-    k = qkvr + 1 * B * T * C;
-    v = qkvr + 2 * B * T * C;
-    */
     let q = next_tensor!(ctx, qkvr, batch_size * seq_len * channel);
     let k = next_tensor!(ctx, qkvr, batch_size * seq_len * channel);
     let v = next_tensor!(ctx, qkvr, batch_size * seq_len * channel);
     let _ = qkvr;
-    assert!(q.len() == batch_size * seq_len * channel);
-    assert!(k.len() == batch_size * seq_len * channel);
-    assert!(v.len() == batch_size * seq_len * channel);
     let config = gpu_host::gpu_config!(num_blocks as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
     permute_kernel::launch(
         config,
@@ -294,6 +287,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     let beta = 0.0f32;
     let preatt = inp;
     unsafe {
+        //cublasCheck(cublasSgemmStridedBatched(cublas_handle, CUBLAS_OP_T, CUBLAS_OP_N, T, T, HS, &alpha, k, HS, T * HS, q, HS, T * HS, &beta, preatt, T, T * T, B * NH));
         let ret = cublasSgemmStridedBatched(
             cublas_handle,
             CUBLAS_OP_T,
@@ -317,9 +311,9 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
         assert!(ret == cublas_sys::cublasStatus_t::CUBLAS_STATUS_SUCCESS);
     }
     // multiply all elements of preatt elementwise by scale
+    let scale = 1.0f32 / (head_size as f32).sqrt();
     let grid_size = (batch_size * num_heads * seq_len * 32).div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
-    let scale = 1.0f32 / (head_size as f32).sqrt();
     softmax_forward_kernel5::launch(
         config,
         ctx,
@@ -335,6 +329,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     let vaccum = inp;
     // new approach: first cuBLAS another batched matmul
     unsafe {
+        //cublasCheck(cublasSgemmStridedBatched(cublas_handle, CUBLAS_OP_N, CUBLAS_OP_N, HS, T, T, &alpha, v, HS, T * HS, att, T, T * T, &beta, vaccum, HS, T * HS, B * NH));
         let ret = cublasSgemmStridedBatched(
             cublas_handle,
             CUBLAS_OP_N,
@@ -362,7 +357,6 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     let total_threads = batch_size * seq_len * channel;
     let num_blocks = total_threads.div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(num_blocks as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
-
     unpermute_kernel::launch(
         config,
         ctx,

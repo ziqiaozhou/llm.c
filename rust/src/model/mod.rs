@@ -146,10 +146,16 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         cpu_inputs: &[i32],
         cpu_targets: &[i32],
         batch_size: usize,
-        seq_len: usize,
+        seq: usize,
     ) {
-        assert!(cpu_inputs.len() >= batch_size * seq_len);
-        assert!(cpu_targets.len() >= batch_size * seq_len);
+        let ch = self.config.channels;
+        let nh = self.config.num_heads;
+        let m = self.module;
+        let seq = seq;
+        let bsize = batch_size;
+        let pad_vocab = self.config.padded_vocab_size;
+        assert!(cpu_inputs.len() >= bsize * seq);
+        assert!(cpu_targets.len() >= bsize * seq);
         cpu_inputs
             .iter()
             .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
@@ -159,10 +165,10 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
 
         // allocate space for all the activations if needed (done here, lazily)
         if self.acts.is_none() {
-            let act_sizes = self.config.get_act_sizes(batch_size, seq_len);
+            let act_sizes = self.config.get_act_sizes(bsize, seq);
             self.num_activations = act_sizes.iter().sum();
-            self.batch_size = batch_size;
-            self.seq_len = seq_len;
+            self.batch_size = bsize;
+            self.seq_len = seq;
             self.acts =
                 Some(ActivationTensors::new(ctx, act_sizes, &vec![0.0f32; self.num_activations]));
             println!(
@@ -173,34 +179,29 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
 
         // also create memory for caching inputs and targets
         if self.inputs.is_none() {
-            self.inputs = Some(ctx.new_tensor_slice(&cpu_inputs[0..batch_size * seq_len]).unwrap());
+            self.inputs = Some(ctx.new_tensor_slice(&cpu_inputs[0..bsize * seq]).unwrap());
         } else {
             self.inputs
                 .as_mut()
                 .unwrap()
-                .copy_from_host(&cpu_inputs[0..batch_size * seq_len], batch_size * seq_len, ctx)
+                .copy_from_host(&cpu_inputs[0..bsize * seq], bsize * seq, ctx)
                 .unwrap();
         }
         if cpu_targets.len() > 0 {
             if self.targets.is_none() {
-                self.targets =
-                    Some(ctx.new_tensor_slice(&cpu_targets[0..batch_size * seq_len]).unwrap());
+                self.targets = Some(ctx.new_tensor_slice(&cpu_targets[0..bsize * seq]).unwrap());
             } else {
                 self.targets
                     .as_mut()
                     .unwrap()
-                    .copy_from_host(
-                        &cpu_targets[0..batch_size * seq_len],
-                        batch_size * seq_len,
-                        ctx,
-                    )
+                    .copy_from_host(&cpu_targets[0..bsize * seq], bsize * seq, ctx)
                     .unwrap();
             }
         }
 
         // validate B,T is consistent with how we've allocated the memory before
-        assert!(self.batch_size == batch_size);
-        assert!(self.seq_len == seq_len);
+        assert!(self.batch_size == bsize);
+        assert!(self.seq_len == seq);
 
         // Sync losses from GPU to CPU
         let acts = self.acts.as_mut().unwrap().inner(ctx);
@@ -208,20 +209,12 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         let inputs = self.inputs.as_ref().unwrap();
         let targets = self.targets.as_ref().unwrap();
         //acts.encoded, model->inputs, params.wte, params.wpe
-        encoder_forward(
-            ctx,
-            self.module,
-            acts.encoded,
-            inputs,
-            params.wte,
-            params.wpe,
-            batch_size,
-            seq_len,
-            self.config.channels,
-        );
+        encoder_forward(ctx, m, acts.encoded, inputs, params.wte, params.wpe, bsize, seq, ch);
 
-        //for (int l = 0; l < L; l++) {
+        // let out_len = acts.output.len();
+        //let mut d_output = vec![0.0f32; out_len];
         let mut residual3 = acts.residual3;
+        let residual3_base = residual3.as_devptr();
         let mut residual = acts.encoded;
         let mut ln1w = params.ln1w;
         let mut ln1b = params.ln1b;
@@ -251,11 +244,8 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
         let mut fch_gelu = acts.fch_gelu;
         let mut fcproj = acts.fcproj;
         let scratch = acts.output;
-
-        for l in 0..self.config.num_layers {
-            if l != 0 {
-                residual = next_tensor!(ctx, residual3, batch_size * seq_len * self.config.channels)
-            };
+        let num_layers = self.config.num_layers;
+        for l in 0..num_layers {
             /*
             float* l_ln1w = params.ln1w + l * C;
             float* l_ln1b = params.ln1b + l * C;
@@ -278,7 +268,7 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             float* l_atty = acts.atty + l * B * T * C;
             float* l_att = acts.att + l * B * NH * T * T;
             float* l_attproj = acts.attproj + l * B * T * C;
-            float* l_residual2 = acts.residual2 + l * B * T * C;
+            float* l_res2 = acts.residual2 + l * B * T * C;
             float* l_ln2 = acts.ln2 + l * B * T * C;
             float* l_ln2_mean = acts.ln2_mean + l * B * T;
             float* l_ln2_rstd = acts.ln2_rstd + l * B * T;
@@ -290,204 +280,105 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             // need not be stored for backward
             float* scratch = acts.output;
             */
-            let l_ln1w = next_tensor!(ctx, ln1w, self.config.channels);
-            let l_ln1b = next_tensor!(ctx, ln1b, self.config.channels);
-            let l_qkvw = next_tensor!(ctx, qkvw, 3 * self.config.channels * self.config.channels);
-            let l_qkvb = next_tensor!(ctx, qkvb, 3 * self.config.channels);
-            let l_attprojw =
-                next_tensor!(ctx, attprojw, self.config.channels * self.config.channels);
-            let l_attprojb = next_tensor!(ctx, attprojb, self.config.channels);
-            let l_ln2w = next_tensor!(ctx, ln2w, self.config.channels);
-            let l_ln2b = next_tensor!(ctx, ln2b, self.config.channels);
-            let l_fcw = next_tensor!(ctx, fcw, 4 * self.config.channels * self.config.channels);
-            let l_fcb = next_tensor!(ctx, fcb, 4 * self.config.channels);
-            let l_fcprojw =
-                next_tensor!(ctx, fcprojw, self.config.channels * 4 * self.config.channels);
-            let l_fcprojb = next_tensor!(ctx, fcprojb, self.config.channels);
+            let l_ln1w = next_tensor!(ctx, ln1w, ch);
+            let l_ln1b = next_tensor!(ctx, ln1b, ch);
+            let l_qkvw = next_tensor!(ctx, qkvw, 3 * ch * ch);
+            let l_qkvb = next_tensor!(ctx, qkvb, 3 * ch);
+            let l_attprojw = next_tensor!(ctx, attprojw, ch * ch);
+            let l_attprojb = next_tensor!(ctx, attprojb, ch);
+            let l_ln2w = next_tensor!(ctx, ln2w, ch);
+            let l_ln2b = next_tensor!(ctx, ln2b, ch);
+            let l_fcw = next_tensor!(ctx, fcw, 4 * ch * ch);
+            let l_fcb = next_tensor!(ctx, fcb, 4 * ch);
+            let l_fcprojw = next_tensor!(ctx, fcprojw, ch * 4 * ch);
+            let l_fcprojb = next_tensor!(ctx, fcprojb, ch);
 
-            let l_ln1 = next_tensor!(ctx, ln1, batch_size * seq_len * self.config.channels);
-            let l_ln1_mean = next_tensor!(ctx, ln1_mean, batch_size * seq_len);
-            let l_ln1_rstd = next_tensor!(ctx, ln1_rstd, batch_size * seq_len);
-            let l_qkvr = next_tensor!(ctx, qkvr, batch_size * seq_len * 3 * self.config.channels);
-            let l_atty = next_tensor!(ctx, atty, batch_size * seq_len * self.config.channels);
-            let l_att =
-                next_tensor!(ctx, att, batch_size * self.config.num_heads * seq_len * seq_len);
-            let l_attproj = next_tensor!(ctx, attproj, batch_size * seq_len * self.config.channels);
-            let l_residual2 =
-                next_tensor!(ctx, residual2, batch_size * seq_len * self.config.channels);
-            let l_ln2 = next_tensor!(ctx, ln2, batch_size * seq_len * self.config.channels);
-            let l_ln2_mean = next_tensor!(ctx, ln2_mean, batch_size * seq_len);
-            let l_ln2_rstd = next_tensor!(ctx, ln2_rstd, batch_size * seq_len);
-            let l_fch = next_tensor!(ctx, fch, batch_size * seq_len * 4 * self.config.channels);
-            let l_fch_gelu =
-                next_tensor!(ctx, fch_gelu, batch_size * seq_len * 4 * self.config.channels);
-            let l_fcproj = next_tensor!(ctx, fcproj, batch_size * seq_len * self.config.channels);
+            let l_ln1 = next_tensor!(ctx, ln1, bsize * seq * ch);
+            let l_ln1_mean = next_tensor!(ctx, ln1_mean, bsize * seq);
+            let l_ln1_rstd = next_tensor!(ctx, ln1_rstd, bsize * seq);
+            let l_qkvr = next_tensor!(ctx, qkvr, bsize * seq * 3 * ch);
+            let l_atty = next_tensor!(ctx, atty, bsize * seq * ch);
+            let l_att = next_tensor!(ctx, att, bsize * nh * seq * seq);
+            let l_attproj = next_tensor!(ctx, attproj, bsize * seq * ch);
+            let l_res2 = next_tensor!(ctx, residual2, bsize * seq * ch);
+            let l_ln2 = next_tensor!(ctx, ln2, bsize * seq * ch);
+            let l_ln2_mean = next_tensor!(ctx, ln2_mean, bsize * seq);
+            let l_ln2_rstd = next_tensor!(ctx, ln2_rstd, bsize * seq);
+            let l_fch = next_tensor!(ctx, fch, bsize * seq * 4 * ch);
+            let l_fch_gelu = next_tensor!(ctx, fch_gelu, bsize * seq * 4 * ch);
+            let l_fcproj = next_tensor!(ctx, fcproj, bsize * seq * ch);
+            let l_residual3 = next_tensor!(ctx, residual3, bsize * seq * ch);
             /*
+            layernorm_forward(l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, B, T, C);
             matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
             attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
             matmul_forward(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C);
-            residual_forward(l_residual2, residual, l_attproj, B*T*C);
-            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C);
+            residual_forward(l_res2, residual, l_attproj, B*T*C);
+            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_res2, l_ln2w, l_ln2b, B, T, C);
             matmul_forward(l_fch, l_ln2, l_fcw, l_fcb, B, T, C, 4*C);
             gelu_forward(l_fch_gelu, l_fch, B*T*4*C);
             matmul_forward(l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4*C, C);
-            residual_forward(l_residual3, l_residual2, l_fcproj, B*T*C);
+            residual_forward(l_residual3, l_res2, l_fcproj, B*T*C);
             */
             layernorm_forward(
-                ctx,
-                self.module,
-                l_ln1,
-                l_ln1_mean,
-                l_ln1_rstd,
-                residual,
-                l_ln1w,
-                l_ln1b,
-                batch_size,
-                seq_len,
-                self.config.channels,
+                ctx, m, l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, bsize, seq, ch,
             );
             // matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
-            matmul_forward(
-                ctx,
-                self.module,
-                scratch,
-                l_ln1,
-                l_qkvw,
-                l_qkvb,
-                batch_size,
-                seq_len,
-                self.config.channels,
-                3 * self.config.channels,
-            );
-            /*
-            attention_forward(l_atty, l_qkvr, l_att, scratch, B, T, C, NH);
-            matmul_forward(l_attproj, l_atty, l_attprojw, l_attprojb, B, T, C, C);
-            residual_forward(l_residual2, residual, l_attproj, B*T*C);
-            layernorm_forward(l_ln2, l_ln2_mean, l_ln2_rstd, l_residual2, l_ln2w, l_ln2b, B, T, C);
-            matmul_forward(l_fch, l_ln2, l_fcw, l_fcb, B, T, C, 4*C);
-            gelu_forward(l_fch_gelu, l_fch, B*T*4*C);
-            matmul_forward(l_fcproj, l_fch_gelu, l_fcprojw, l_fcprojb, B, T, 4*C, C);
-            residual_forward(l_residual3, l_residual2, l_fcproj, B*T*C);
+            matmul_forward(ctx, m, scratch, l_ln1, l_qkvw, l_qkvb, bsize, seq, ch, 3 * ch);
+            /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
+            println!("matmul_forward d_output[0..100] = {:?}", &d_output[0..100]);
             */
             attention_forward(
                 ctx,
-                self.module,
+                m,
                 cublas_handle,
                 l_atty,
                 l_qkvr,
                 l_att,
                 scratch,
-                batch_size,
-                seq_len,
-                self.config.channels,
-                self.config.num_heads,
+                bsize,
+                seq,
+                ch,
+                nh,
             );
-            matmul_forward(
-                ctx,
-                self.module,
-                l_attproj,
-                l_atty,
-                l_attprojw,
-                l_attprojb,
-                batch_size,
-                seq_len,
-                self.config.channels,
-                self.config.channels,
-            );
-            residual_forward(
-                ctx,
-                self.module,
-                l_residual2,
-                residual,
-                l_attproj,
-                batch_size * seq_len * self.config.channels,
-            );
+            /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
+            println!("attention_forward d_output[0..100] = {:?}", &d_output[0..100]);
+            panic!();
+            */
+            matmul_forward(ctx, m, l_attproj, l_atty, l_attprojw, l_attprojb, bsize, seq, ch, ch);
+            residual_forward(ctx, m, l_res2, residual, l_attproj, bsize * seq * ch);
             layernorm_forward(
-                ctx,
-                self.module,
-                l_ln2,
-                l_ln2_mean,
-                l_ln2_rstd,
-                l_residual2,
-                l_ln2w,
-                l_ln2b,
-                batch_size,
-                seq_len,
-                self.config.channels,
+                ctx, m, l_ln2, l_ln2_mean, l_ln2_rstd, l_res2, l_ln2w, l_ln2b, bsize, seq, ch,
             );
+            matmul_forward(ctx, m, l_fch, l_ln2, l_fcw, l_fcb, bsize, seq, ch, 4 * ch);
+            gelu_forward(ctx, m, l_fch_gelu, l_fch, bsize * seq * 4 * ch);
             matmul_forward(
                 ctx,
-                self.module,
-                l_fch,
-                l_ln2,
-                l_fcw,
-                l_fcb,
-                batch_size,
-                seq_len,
-                self.config.channels,
-                4 * self.config.channels,
-            );
-
-            gelu_forward(
-                ctx,
-                self.module,
-                l_fch_gelu,
-                l_fch,
-                batch_size * seq_len * 4 * self.config.channels,
-            );
-            matmul_forward(
-                ctx,
-                self.module,
+                m,
                 l_fcproj,
                 l_fch_gelu,
                 l_fcprojw,
                 l_fcprojb,
-                batch_size,
-                seq_len,
-                4 * self.config.channels,
-                self.config.channels,
+                bsize,
+                seq,
+                4 * ch,
+                ch,
             );
-            residual_forward(
-                ctx,
-                self.module,
-                residual3,
-                l_residual2,
-                l_fcproj,
-                batch_size * seq_len * self.config.channels,
-            );
+            residual_forward(ctx, m, l_residual3, l_res2, l_fcproj, bsize * seq * ch);
+            residual = l_residual3;
         }
-
-        let residual = residual3;
         /*
+        residual = acts.residual3 + (L-1) * B * T * C; // last residual is in residual3
         layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, residual, params.lnfw, params.lnfb, B, T, C);
         matmul_forward(acts.output, acts.lnf, params.wte, NULL, B, T, C, Vp);
         */
-        layernorm_forward(
-            ctx,
-            self.module,
-            acts.lnf,
-            acts.lnf_mean,
-            acts.lnf_rstd,
-            residual,
-            params.lnfw,
-            params.lnfb,
-            batch_size,
-            seq_len,
-            self.config.channels,
-        );
+        let (lnf, lnf_mean, lnf_rstd) = (acts.lnf, acts.lnf_mean, acts.lnf_rstd);
+        let (lnfw, lnfb) = (params.lnfw, params.lnfb);
+        layernorm_forward(ctx, m, lnf, lnf_mean, lnf_rstd, residual, lnfw, lnfb, bsize, seq, ch);
         let empty_tensor = ctx.new_tensor_slice(&[]).unwrap();
-        matmul_forward(
-            ctx,
-            self.module,
-            scratch,
-            acts.lnf,
-            params.wte,
-            empty_tensor,
-            batch_size,
-            seq_len,
-            self.config.channels,
-            self.config.padded_vocab_size,
-        );
+        let acts = self.acts.as_mut().unwrap().inner(ctx);
+        let (output, lnf, losses) = (acts.output, acts.lnf, acts.losses);
+        matmul_forward(ctx, m, output, lnf, params.wte, empty_tensor, bsize, seq, ch, pad_vocab);
 
         /*
         fused_classifier3(acts.output, acts.losses, NULL, model->targets, B, T, V, Vp);
@@ -503,30 +394,26 @@ impl<'ctx, NS: GpuCtxSpace> GPT2<'ctx, NS> {
             self.mean_loss = -1.0;
             return;
         }
-        let loss_len = acts.losses.len();
         fused_classifier3(
             ctx,
-            self.module,
-            scratch,
-            acts.losses,
+            m,
+            output,
+            losses,
             empty_tensor,
             targets,
-            batch_size,
-            seq_len,
+            bsize,
+            seq,
             self.config.vocab_size,
-            self.config.padded_vocab_size,
+            pad_vocab,
         );
         if self.cpu_losses.is_none() {
-            println!("acts.losses len = {}", acts.losses.len());
-            self.cpu_losses = Some(PinnedHostBox::new_from_tensor(ctx, &acts.losses).unwrap());
+            self.cpu_losses = Some(PinnedHostBox::new_from_tensor(ctx, &losses).unwrap());
         } else {
-            acts.losses
-                .copy_to_host(self.cpu_losses.as_mut().unwrap(), acts.losses.len(), ctx)
-                .unwrap();
+            losses.copy_to_host(self.cpu_losses.as_mut().unwrap(), losses.len(), ctx).unwrap();
         }
-        let mean_loss =
-            self.cpu_losses.as_ref().unwrap()[0..(batch_size * seq_len)].iter().sum::<f32>()
-                / (batch_size * seq_len) as f32;
+        let mean_loss = self.cpu_losses.as_ref().unwrap()[0..(bsize * seq)].iter().sum::<f32>()
+            / (bsize * seq) as f32;
+        assert!(mean_loss <= 4.6); // test the result is potentially correct.
         self.mean_loss = mean_loss;
         println!("mean loss: {}", mean_loss);
     }
