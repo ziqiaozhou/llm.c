@@ -47,7 +47,7 @@ struct Args {
     val_loss_every: usize,
     #[arg(default_value_t = 20)]
     val_max_steps: usize,
-    #[arg(default_value_t = 1)]
+    #[arg(default_value_t = 12)]
     sample_every: usize,
     #[arg(default_value_t = 64)]
     gen_t: usize,
@@ -181,14 +181,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
             val_loader.reset();
             for _ in 0..val_num_batches {
                 let (input, target) = val_loader.next_batch();
-                model.forward(
-                    ctx,
-                    cublas_handle,
-                    &input,
-                    &target,
-                    args.batch_size,
-                    args.seq_length,
-                );
+                model.forward(cublas_handle, &input, &target, args.batch_size, args.seq_length);
                 val_loss += model.mean_loss;
             }
             val_loss /= val_num_batches as f32;
@@ -197,7 +190,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         }
 
         // once in a while do model inference to print generated text
-        if (step >= 0 && step % args.sample_every == 0) || last_step {
+        if (step > 0 && step % args.sample_every == 0) || last_step {
             // fill up gen_tokens with the GPT2_EOT, which kicks off the generation
             gen_tokens.iter_mut().for_each(|t| *t = GPT2_EOT); // GPT2_EOT
             // now sample from the model autoregressively
@@ -207,23 +200,14 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 // we re-calculate the forward pass for all of (B,T) positions from scratch
                 // but the inference here is just for sanity checking anyway
                 // and we can maybe optimize a bit more later, with careful tests
-                model.forward(
-                    ctx,
-                    cublas_handle,
-                    &gen_tokens,
-                    &[],
-                    args.batch_size,
-                    args.seq_length,
-                );
+                model.forward(cublas_handle, &gen_tokens, &[], args.batch_size, args.seq_length);
                 // furthermore, below we're only using b=0 (i.e. the first row) of all B rows
                 // we're in principle running B "inference streams" in parallel here
                 // only using position 0 because it's a bit faster (copy less probs from GPU -> CPU)
                 // get the V-dimensional vector probs[0, t-1, :]
-                let acts = model.acts.as_mut().unwrap().inner(ctx);
-                let mut logits = acts.output;
-                let _ = next_tensor!(ctx, logits, (t - 1) * padded_vocab_size);
-                let cpu_logits_len = cpu_logits.len();
-                logits.copy_to_host(&mut cpu_logits, cpu_logits_len, ctx).unwrap();
+                let mut acts = model.acts.as_mut().unwrap().inner();
+                let mut logits = acts.output.index_mut((t - 1) * padded_vocab_size..); // first row
+                logits.copy_to_host(&mut cpu_logits).unwrap();
                 // float coin = random_f32(&rng_state);
                 let coin = 0.5; //rng.gen_range(0.0..1.0);
                 let next_token = sample_softmax(&cpu_logits, coin);
@@ -246,7 +230,29 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
             break;
         }
 
+        let start = std::time::Instant::now();
         let (input, target) = train_loader.next_batch();
-        model.forward(ctx, cublas_handle, &input, &target, args.batch_size, args.seq_length);
+        model.forward(cublas_handle, &input, &target, args.batch_size, args.seq_length);
+        /*
+        gpt2_forward(&model, train_loader.inputs, train_loader.targets, B, T);
+        gpt2_zero_grad(&model);
+        gpt2_backward(&model);
+        gpt2_update(&model, learning_rate, 0.9f, 0.999f, 1e-8f, 0.0f, step+1);
+        cudaCheck(cudaDeviceSynchronize()); // finish all CUDA work to get
+         */
+        model.zero_grad();
+        model.backward(cublas_handle);
+        model.update(args.learning_rate, 0.9, 0.999, 1e-8, 0.0, (step + 1) as i32);
+        let elapsed = start.elapsed();
+        let tokens_per_second = (args.batch_size * args.seq_length) as f32 / elapsed.as_secs_f32();
+        println!(
+            "step {}/{}: train loss {} ({:?}, {} tok/s)",
+            step + 1,
+            train_loader.num_batches,
+            model.mean_loss,
+            elapsed,
+            tokens_per_second as usize
+        );
+        //logger_log_train(&logger, step, model.mean_loss);
     }
 }

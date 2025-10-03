@@ -1,4 +1,4 @@
-use gpu_host::{GpuCtxSpace, TensorSliceMut};
+use gpu_host::{GpuCtxSpace, TensorViewMut};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GPT2Config {
@@ -99,54 +99,72 @@ impl GPT2Config {
 
         act_sizes
     }
+
+    /*
+        void fill_in_grad_act_sizes(size_t* act_sizes, int B, int T, GPT2Config config) {
+        size_t NH = config.num_heads;
+        size_t C = config.channels;
+        act_sizes[0] = B * T * 4 * C; // bt4c
+        act_sizes[1] = B * NH * T * T; // preatt
+        act_sizes[2] = B * T * C; // residual3
+    }
+        */
+    pub fn get_grad_act_sizes(&self, batch_size: usize, seq_len: usize) -> [usize; 3] {
+        let mut grad_act_sizes = [0; 3];
+        let config = self;
+
+        grad_act_sizes[0] = batch_size * seq_len * 4 * config.channels; // bt4c
+        grad_act_sizes[1] = batch_size * config.num_heads * seq_len * seq_len; // preatt
+        grad_act_sizes[2] = batch_size * seq_len * config.channels; // residual3
+
+        grad_act_sizes
+    }
 }
 
 macro_rules! new_tensors {
     (
         pub const $param_len: ident: usize = $len: literal;
-        pub struct $name_tensor:ident<'ctx, NS: GpuCtxSpace> {
-            pub tensor: TensorSliceMut<'ctx, $elem_ty: ty, NS>,
+        pub struct $name_tensor:ident<'g> {
+            pub tensor: TensorViewMut<'g, [$elem_ty: ty]>,
         }
-        pub struct $name:ident<'ctx, NS: GpuCtxSpace> {
+        pub struct $name:ident<'g> {
             $(
                 $(#[$doc:meta])*
-                pub $field:ident : TensorSliceMut<'ctx, $_elem_ty: ty, NS>,
+                pub $field:ident : TensorViewMut<'g, [$_elem_ty: ty]>,
             )*
         }
     ) => {
         pub const $param_len: usize = $len;
 
-        pub struct $name_tensor<'ctx, NS: GpuCtxSpace> {
-            pub tensor: TensorSliceMut<'ctx, $elem_ty, NS>,
+        pub struct $name_tensor<'g> {
+            pub tensor: TensorViewMut<'g, [$elem_ty]>,
             pub param_sizes: [usize; $param_len],
         }
 
-        pub struct $name<'ctx, NS: GpuCtxSpace> {
+        pub struct $name<'g> {
             $(
                 $(#[$doc])*
-                pub $field: TensorSliceMut<'ctx, $elem_ty, NS>,
+                pub $field: TensorViewMut<'g, [$_elem_ty]>,
             )*
         }
 
-        impl<'ctx, NS: GpuCtxSpace> $name_tensor<'ctx, NS> {
-            pub fn new(ctx: &'ctx gpu_host::GpuCtxGuard<'ctx, '_, NS>, param_sizes: [usize; $param_len], init: &[$elem_ty]) -> Self {
-                let tensor = ctx.new_tensor_slice(init).unwrap();
+        impl<'g> $name_tensor<'g> {
+            pub fn new<'ctx, 'a: 'g, NS: GpuCtxSpace>(ctx: &'g gpu_host::GpuCtxGuard<'ctx, 'a, NS>, param_sizes: [usize; $param_len], init: &[$elem_ty]) -> Self {
+                let tensor = ctx.new_tensor_view(init).unwrap();
                 $name_tensor { tensor, param_sizes }
             }
 
-            pub fn inner<'a>(
-                &'a mut self,
-                ctx: &'ctx gpu_host::GpuCtxGuard<'ctx, '_, NS>,
-            ) -> $name<'a, NS>
+            pub fn inner<'a>(&'a mut self) -> $name<'a>
             {
                 let param_sizes = self.param_sizes;
-                let params = &mut self.tensor;
-                let mut len = 0;
+                let mut params = self.tensor.index_mut(..);
+                let mut i = 0;
                 $(
-                    len += 1;
-                    let ($field, params) = ctx.split_tensor_slice(params, param_sizes[len-1]).unwrap();
+                    let ($field, mut params) = params.split(param_sizes[i]);
+                    i += 1;
                 )*
                 let _ = params;
+                let _ = i;
                 $name {
                     $(
                         $field,
@@ -159,65 +177,65 @@ macro_rules! new_tensors {
 
 new_tensors! {
 pub const NUM_PARAMETER_TENSORS: usize = 16;
-pub struct ParameterTensors<'ctx, NS: GpuCtxSpace> {
-    pub tensor: TensorSliceMut<'ctx, f32, NS>,
+pub struct ParameterTensors<'g> {
+    pub tensor: TensorViewMut<'g, [f32]>,
 }
-pub struct ParameterTensorsInner<'ctx, NS: GpuCtxSpace> {
+pub struct ParameterTensorsInner<'g> {
     /// Token embeddings (V, C).
-    pub wte: TensorSliceMut<'ctx, f32, NS>,
+    pub wte: TensorViewMut<'g, [f32]>,
 
     /// Position embeddings (maxT, C).
-    pub wpe: TensorSliceMut<'ctx, f32, NS>,
+    pub wpe: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization weights for the first layer (L, C).
-    pub ln1w: TensorSliceMut<'ctx, f32, NS>,
+    pub ln1w: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization biases for the first layer (L, C).
-    pub ln1b: TensorSliceMut<'ctx, f32, NS>,
+    pub ln1b: TensorViewMut<'g, [f32]>,
 
     /// Query, Key, Value weights (L, 3*C, C).
-    pub qkvw: TensorSliceMut<'ctx, f32, NS>,
+    pub qkvw: TensorViewMut<'g, [f32]>,
 
     /// Query, Key, Value biases (L, 3*C).
-    pub qkvb: TensorSliceMut<'ctx, f32, NS>,
+    pub qkvb: TensorViewMut<'g, [f32]>,
 
     /// Attention projection weights (L, C, C).
-    pub attprojw: TensorSliceMut<'ctx, f32, NS>,
+    pub attprojw: TensorViewMut<'g, [f32]>,
 
     /// Attention projection biases (L, C).
-    pub attprojb: TensorSliceMut<'ctx, f32, NS>,
+    pub attprojb: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization weights for the second layer (L, C).
-    pub ln2w: TensorSliceMut<'ctx, f32, NS>,
+    pub ln2w: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization biases for the second layer (L, C).
-    pub ln2b: TensorSliceMut<'ctx, f32, NS>,
+    pub ln2b: TensorViewMut<'g, [f32]>,
 
     /// Fully connected weights (L, 4*C, C).
-    pub fcw: TensorSliceMut<'ctx, f32, NS>,
+    pub fcw: TensorViewMut<'g, [f32]>,
 
     /// Fully connected biases (L, 4*C).
-    pub fcb: TensorSliceMut<'ctx, f32, NS>,
+    pub fcb: TensorViewMut<'g, [f32]>,
 
     /// Fully connected projection weights (L, C, 4*C).
-    pub fcprojw: TensorSliceMut<'ctx, f32, NS>,
+    pub fcprojw: TensorViewMut<'g, [f32]>,
 
     /// Fully connected projection biases (L, C).
-    pub fcprojb: TensorSliceMut<'ctx, f32, NS>,
+    pub fcprojb: TensorViewMut<'g, [f32]>,
 
     /// Final layer normalization weights (C).
-    pub lnfw: TensorSliceMut<'ctx, f32, NS>,
+    pub lnfw: TensorViewMut<'g, [f32]>,
 
     /// Final layer normalization biases (C).
-    pub lnfb: TensorSliceMut<'ctx, f32, NS>,
+    pub lnfb: TensorViewMut<'g, [f32]>,
 }
 }
 
 new_tensors! {
 pub const NUM_ACTIVATION_TENSORS: usize = 21;
 
-pub struct ActivationTensors<'ctx, NS: GpuCtxSpace> {
-    pub tensor: TensorSliceMut<'ctx, f32, NS>,
+pub struct ActivationTensors<'g> {
+    pub tensor: TensorViewMut<'g, [f32]>,
 }
 
 /*
@@ -252,76 +270,95 @@ typedef struct {
     float* output;
 } ActivationTensors;
  */
-pub struct ActivationTensorsInner<'ctx, NS: GpuCtxSpace> {
+pub struct ActivationTensorsInner<'g> {
     /// Encoded (B, T, C)
-    pub encoded: TensorSliceMut<'ctx, f32, NS>,
+    pub encoded: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 1 (L, B, T, C)
-    pub ln1: TensorSliceMut<'ctx, f32, NS>,
+    pub ln1: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 1 mean (L, B, T)
-    pub ln1_mean: TensorSliceMut<'ctx, f32, NS>,
+    pub ln1_mean: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 1 reciprocal std (L, B, T)
-    pub ln1_rstd: TensorSliceMut<'ctx, f32, NS>,
+    pub ln1_rstd: TensorViewMut<'g, [f32]>,
 
     /// Attention output (L, B, T, C)
-    pub atty: TensorSliceMut<'ctx, f32, NS>,
+    pub atty: TensorViewMut<'g, [f32]>,
 
     /// Attention scores (L, B, NH, T, T)
-    pub att: TensorSliceMut<'ctx, f32, NS>,
+    pub att: TensorViewMut<'g, [f32]>,
 
     /// Attention projection (L, B, T, C)
-    pub attproj: TensorSliceMut<'ctx, f32, NS>,
+    pub attproj: TensorViewMut<'g, [f32]>,
 
     /// Second residual connection (L, B, T, C)
-    pub residual2: TensorSliceMut<'ctx, f32, NS>,
+    pub residual2: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 2 (L, B, T, C)
-    pub ln2: TensorSliceMut<'ctx, f32, NS>,
+    pub ln2: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 2 mean (L, B, T)
-    pub ln2_mean: TensorSliceMut<'ctx, f32, NS>,
+    pub ln2_mean: TensorViewMut<'g, [f32]>,
 
     /// Layer normalization 2 reciprocal std (L, B, T)
-    pub ln2_rstd: TensorSliceMut<'ctx, f32, NS>,
+    pub ln2_rstd: TensorViewMut<'g, [f32]>,
 
     /// Fully connected hidden (L, B, T, 4*C)
-    pub fch: TensorSliceMut<'ctx, f32, NS>,
+    pub fch: TensorViewMut<'g, [f32]>,
 
     /// Fully connected hidden GELU activation (L, B, T, 4*C)
-    pub fch_gelu: TensorSliceMut<'ctx, f32, NS>,
+    pub fch_gelu: TensorViewMut<'g, [f32]>,
 
     /// Fully connected projection (L, B, T, C)
-    pub fcproj: TensorSliceMut<'ctx, f32, NS>,
+    pub fcproj: TensorViewMut<'g, [f32]>,
 
     /// Third residual connection (L, B, T, C)
-    pub residual3: TensorSliceMut<'ctx, f32, NS>,
+    pub residual3: TensorViewMut<'g, [f32]>,
 
     /// Final layer normalization (B, T, C)
-    pub lnf: TensorSliceMut<'ctx, f32, NS>,
+    pub lnf: TensorViewMut<'g, [f32]>,
 
     /// Final layer normalization mean (B, T)
-    pub lnf_mean: TensorSliceMut<'ctx, f32, NS>,
+    pub lnf_mean: TensorViewMut<'g, [f32]>,
 
     /// Final layer normalization reciprocal std (B, T)
-    pub lnf_rstd: TensorSliceMut<'ctx, f32, NS>,
+    pub lnf_rstd: TensorViewMut<'g, [f32]>,
 
     /// Losses (B, T)
-    pub losses: TensorSliceMut<'ctx, f32, NS>,
+    pub losses: TensorViewMut<'g, [f32]>,
     /// Query, Key, Value (L, B, T, 3*C)
-    pub qkvr: TensorSliceMut<'ctx, f32, NS>,
-    pub output: TensorSliceMut<'ctx, f32, NS>, // (B, T, max(3*C, NH*T, V))
+    pub qkvr: TensorViewMut<'g, [f32]>,
+    pub output: TensorViewMut<'g, [f32]>, // (B, T, max(3*C, NH*T, V))
 }
 }
 
 new_tensors! {
 pub const NUM_BATCH_TENSORS: usize = 2;
-pub struct BatchTensor<'ctx, NS: GpuCtxSpace> {
-    pub tensor: TensorSliceMut<'ctx, i32, NS>,
+pub struct BatchTensor<'g> {
+    pub tensor: TensorViewMut<'g, [i32]>,
 }
-pub struct BatchTensorInner<'ctx, NS: GpuCtxSpace> {
-    pub input: TensorSliceMut<'ctx, i32, NS>,
-    pub target: TensorSliceMut<'ctx, i32, NS>,
+pub struct BatchTensorInner<'g> {
+    pub input: TensorViewMut<'g, [i32]>,
+    pub target: TensorViewMut<'g, [i32]>,
+}
+}
+
+/*
+typedef struct {
+    float* bt4c; // (B, T, 4*C)
+    float* preatt; // (B, NH, T, T)
+    float* residual3; // (B, T, C)
+} GradActTensors;*/
+
+new_tensors! {
+pub const NUM_GRAD_ACT_TENSORS: usize = 3;
+pub struct GradActTensors<'g> {
+    pub tensor: TensorViewMut<'g, [f32]>,
+}
+pub struct GradActTensorsInner<'g> {
+    pub bt4c: TensorViewMut<'g, [f32]>, // (B, T, 4*C)
+    pub preatt: TensorViewMut<'g, [f32]>, // (B, NH, T, T)
+    pub residual3: TensorViewMut<'g, [f32]>, // (B, T, C)
 }
 }
