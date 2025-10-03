@@ -590,14 +590,12 @@ pub(crate) fn attention_backward<'ctx, CN: GpuCtxSpace>(
 
     let num_blocks = bsc_len.div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(num_blocks as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
-    permute_kernel_backward::launch(
+    unpermute_kernel_backward::launch(
         config,
         ctx,
         m,
-        dinp,
-        &dq,
-        &dk,
-        &dv,
+        scratch,
+        dout,
         batch_size as _,
         seq_len as _,
         num_heads as _,
@@ -732,6 +730,24 @@ pub(crate) fn attention_backward<'ctx, CN: GpuCtxSpace>(
         );
         assert!(ret == cublas_sys::cublasStatus_t::CUBLAS_STATUS_SUCCESS);
     }
+    // backward into inp
+    let total_threads = batch_size * num_heads * seq_len * head_size;
+    let num_blocks = total_threads.div_ceil(BSIZE);
+    let config = gpu_host::gpu_config!(num_blocks as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    permute_kernel_backward::launch(
+        config,
+        ctx,
+        m,
+        dinp,
+        &dq,
+        &dk,
+        &dv,
+        batch_size as _,
+        seq_len as _,
+        num_heads as _,
+        head_size as _,
+    )
+    .expect("failed to launch permute_kernel_backward");
 }
 
 /*

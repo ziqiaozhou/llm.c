@@ -606,42 +606,27 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             float* l_ln2w = params.ln2w + l * C;
             float* l_fcw = params.fcw + l * 4*C * C;
             float* l_fcprojw = params.fcprojw + l * C * 4*C;
-            // get the pointers of the gradients of the weights for this layer
-            float* dl_ln1w = grads.ln1w + l * C;
-            float* dl_ln1b = grads.ln1b + l * C;
-            float* dl_qkvw = grads.qkvw + l * 3*C * C;
-            float* dl_qkvb = grads.qkvb + l * 3*C;
-            float* dl_attprojw = grads.attprojw + l * C * C;
-            float* dl_attprojb = grads.attprojb + l * C;
-            float* dl_ln2w = grads.ln2w + l * C;
-            float* dl_ln2b = grads.ln2b + l * C;
-            float* dl_fcw = grads.fcw + l * 4*C * C;
-            float* dl_fcb = grads.fcb + l * 4*C;
-            float* dl_fcprojw = grads.fcprojw + l * C * 4*C;
-            float* dl_fcprojb = grads.fcprojb + l * C;
-            // get the pointers of the activations for this layer
-            float* l_ln1 = acts.ln1 + l * B * T * C;
-            float* l_ln1_mean = acts.ln1_mean + l * B * T;
-            float* l_ln1_rstd = acts.ln1_rstd + l * B * T;
-            float* l_qkvr = acts.qkvr + l * B * T * 3*C;
-            float* l_atty = acts.atty + l * B * T * C;
-            float* l_att = acts.att + l * B * NH * T * T;
-            float* l_residual2 = acts.residual2 + l * B * T * C;
-            float* l_ln2 = acts.ln2 + l * B * T * C;
-            float* l_ln2_mean = acts.ln2_mean + l * B * T;
-            float* l_ln2_rstd = acts.ln2_rstd + l * B * T;
-            float* l_fch = acts.fch + l * B * T * 4*C;
-            float* l_fch_gelu = acts.fch_gelu + l * B * T * 4*C; */
-            let dl_btc = &mut acts.lnf;
-            let dl_bt4c = &mut grads_acts.bt4c;
-            let dl_preatt = &mut grads_acts.preatt;
-            let scratch = &mut acts.output;
+            */
             let ln1w = params.ln1w.index_mut(l * ch..(l + 1) * ch);
             let qkvw = params.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
             let attprojw = params.attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
             let ln2w = params.ln2w.index_mut(l * ch..(l + 1) * ch);
             let fcw = params.fcw.index_mut(l * 4 * ch * ch..(l + 1) * 4 * ch * ch);
             let fcprojw = params.fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
+
+            // get the pointers of the gradients of the weights for this layer
+            // float* dl_ln1w = grads.ln1w + l * C;
+            // float* dl_ln1b = grads.ln1b + l * C;
+            // float* dl_qkvw = grads.qkvw + l * 3*C * C;
+            // float* dl_qkvb = grads.qkvb + l * 3*C;
+            // float* dl_attprojw = grads.attprojw + l * C * C;
+            // float* dl_attprojb = grads.attprojb + l * C;
+            // float* dl_ln2w = grads.ln2w + l * C;
+            // float* dl_ln2b = grads.ln2b + l * C;
+            // float* dl_fcw = grads.fcw + l * 4*C * C;
+            // float* dl_fcb = grads.fcb + l * 4*C;
+            // float* dl_fcprojw = grads.fcprojw + l * C * 4*C;
+            // float* dl_fcprojb = grads.fcprojb + l * C;
             let mut dl_ln1w = grads.ln1w.index_mut(l * ch..(l + 1) * ch);
             let mut dl_ln1b = grads.ln1b.index_mut(l * ch..(l + 1) * ch);
             let mut dl_qkvw = grads.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
@@ -654,6 +639,20 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             let mut dl_fcb = grads.fcb.index_mut(l * 4 * ch..(l + 1) * 4 * ch);
             let mut dl_fcprojw = grads.fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
             let mut dl_fcprojb = grads.fcprojb.index_mut(l * ch..(l + 1) * ch);
+
+            // get the pointers of the activations for this layer
+            // float* l_ln1 = acts.ln1 + l * B * T * C;
+            // float* l_ln1_mean = acts.ln1_mean + l * B * T;
+            // float* l_ln1_rstd = acts.ln1_rstd + l * B * T;
+            // float* l_qkvr = acts.qkvr + l * B * T * 3*C;
+            // float* l_atty = acts.atty + l * B * T * C;
+            // float* l_att = acts.att + l * B * NH * T * T;
+            // float* l_residual2 = acts.residual2 + l * B * T * C;
+            // float* l_ln2 = acts.ln2 + l * B * T * C;
+            // float* l_ln2_mean = acts.ln2_mean + l * B * T;
+            // float* l_ln2_rstd = acts.ln2_rstd + l * B * T;
+            // float* l_fch = acts.fch + l * B * T * 4*C;
+            // float* l_fch_gelu = acts.fch_gelu + l * B * T * 4*C;
             let ln1 = acts.ln1.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
             let ln1_mean = acts.ln1_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
             let ln1_rstd = acts.ln1_rstd.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
@@ -671,7 +670,31 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 acts.fch.index_mut(l * bsize * seq * 4 * ch..(l + 1) * bsize * seq * 4 * ch);
             let fch_gelu =
                 acts.fch_gelu.index_mut(l * bsize * seq * 4 * ch..(l + 1) * bsize * seq * 4 * ch);
-            //matmul_backward(dl_bt4c, dl_fcprojw, dl_fcprojb, dresidual, l_fch_gelu, l_fcprojw, B, T, 4*C, C);
+
+            // get the pointers of the gradients of the activations for this layer
+            // notice that there is no l *, because we just have a single copy, and keep
+            // re-using this memory in every Transformer block as we calculate backward pass
+
+            // we need a B x T x C buffer; thankfully, the forward activation for lnf isn't needed anymore,
+            // so we can co-opt it here.
+            // float* dl_btc = acts.lnf;
+            // float* dl_bt4c = grads_acts.bt4c;
+            // float* dl_preatt = grads_acts.preatt;
+            let dl_btc = &mut acts.lnf;
+            let dl_bt4c = &mut grads_acts.bt4c;
+            let dl_preatt = &mut grads_acts.preatt;
+
+            // re-use scratch buffer of the forward pass
+            // float* scratch = acts.output;
+            let scratch = &mut acts.output;
+            // backprop this layer
+            // matmul_backward(dl_bt4c, dl_fcprojw, dl_fcprojb, dresidual, l_fch_gelu, l_fcprojw, B, T, 4*C, C);
+            // gelu_backward(dl_bt4c, l_fch, dl_bt4c, B*T*4*C);
+            // matmul_backward(dl_btc, dl_fcw, dl_fcb, dl_bt4c, l_ln2, l_fcw, B, T, C, 4 * C);
+            // layernorm backward does += to the dresidual, so it correctly accumulates grad from the MLP block above
+            // layernorm_backward(dresidual, dl_ln2w, dl_ln2b, dl_btc, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C);
+            // matmul_backward(dl_btc, dl_attprojw, dl_attprojb, dresidual, l_atty, l_attprojw, B, T, C, C);
+            // we more B x T x (4)C buffers. l_atty and l_fch aren't needed anymore at this point, so reuse their memory
             matmul_backward(
                 ctx,
                 m,
@@ -737,10 +760,12 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 ch,
             );
-            //float* buffer_a = l_atty;
-            //float* buffer_b = l_fch;        // this is B x T x 4C, so even larger than what we need
-
-            //attention_backward(dl_bt4c, buffer_b, dl_preatt, scratch, buffer_a, dl_btc, l_qkvr, l_att, B, T, C, NH);
+            // float* buffer_a = l_atty;
+            // float* buffer_b = l_fch;        // this is B x T x 4C, so even larger than what we need
+            // attention_backward(dl_bt4c, buffer_b, dl_preatt, scratch, buffer_a, dl_btc, l_qkvr, l_att, B, T, C, NH);
+            // matmul_backward(dl_btc, dl_qkvw, dl_qkvb, dl_bt4c, l_ln1, l_qkvw, B, T, C, 3 * C);
+            // layernorm backward does += to dresidual, so it correctly accumulates gradient for the Attention block above
+            // layernorm_backward(dresidual, dl_ln1w, dl_ln1b, dl_btc, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C);
             attention_backward(
                 ctx,
                 m,
@@ -758,7 +783,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 nh,
             );
-            //matmul_backward(dl_btc, dl_qkvw, dl_qkvb, dl_bt4c, l_ln1, l_qkvw, B, T, C, 3 * C);
             matmul_backward(
                 ctx,
                 m,
@@ -774,7 +798,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 3 * ch,
             );
-            //layernorm_backward(dresidual, dl_ln1w, dl_ln1b, dl_btc, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C);
             layernorm_backward(
                 ctx,
                 m,
@@ -790,55 +813,12 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 seq,
                 ch,
             );
-            // residual = l == 0 ? acts.encoded : acts.residual3 + (l-1) * B * T * C;
-            //let mut residual = acts.residual3.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-
-            /*
-            matmul_backward(dl_bt4c, dl_fcprojw, dl_fcprojb, dresidual, l_fch_gelu, l_fcprojw, B, T, 4*C, C);
-            gelu_backward(dl_bt4c, l_fch, dl_bt4c, B*T*4*C);
-            matmul_backward(dl_btc, dl_fcw, dl_fcb, dl_bt4c, l_ln2, l_fcw, B, T, C, 4 * C);
-            // layernorm backward does += to the dresidual, so it correctly accumulates grad from the MLP block above
-            layernorm_backward(dresidual, dl_ln2w, dl_ln2b, dl_btc, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C);
-            matmul_backward(dl_btc, dl_attprojw, dl_attprojb, dresidual, l_atty, l_attprojw, B, T, C, C);
-            // we more B x T x (4)C buffers. l_atty and l_fch aren't needed anymore at this point, so reuse their memory
-            float* buffer_a = l_atty;
-            float* buffer_b = l_fch;        // this is B x T x 4C, so even larger than what we need
-
-            attention_backward(dl_bt4c, buffer_b, dl_preatt, scratch, buffer_a, dl_btc, l_qkvr, l_att, B, T, C, NH);
-            matmul_backward(dl_btc, dl_qkvw, dl_qkvb, dl_bt4c, l_ln1, l_qkvw, B, T, C, 3 * C);
-            // layernorm backward does += to dresidual, so it correctly accumulates gradient for the Attention block above
-            layernorm_backward(dresidual, dl_ln1w, dl_ln1b, dl_btc, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C);*/
         }
         // encoder_backward(grads.wte, grads.wpe, dresidual, model->inputs, B, T, C);
         let inputs = &mut self.inputs.as_mut().unwrap();
-        let l = num_layers - 1;
-        let residual = acts.residual3.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
+        let residual = acts.residual3.index_mut(0..bsize * seq * ch);
         encoder_backward(ctx, m, &mut grads.wte, &mut grads.wpe, &residual, inputs, bsize, seq, ch);
     }
-
-    /*void gpt2_update(GPT2 *model, float learning_rate, float beta1, float beta2, float eps, float weight_decay, int t) {
-        // reference: https://pytorch.org/docs/stable/generated/torch.optim.AdamW.html
-
-        // lazily allocate the memory for m_memory and v_memory
-        if (model->m_memory == NULL) {
-            cudaCheck(cudaMalloc((void**)&model->m_memory, model->num_parameters * sizeof(float)));
-            cudaCheck(cudaMalloc((void**)&model->v_memory, model->num_parameters * sizeof(float)));
-            cudaCheck(cudaMemset(model->m_memory, 0, model->num_parameters * sizeof(float)));
-            cudaCheck(cudaMemset(model->v_memory, 0, model->num_parameters * sizeof(float)));
-            printf("allocated %zu MiB for AdamW optimizer state m\n", (model->num_parameters * sizeof(float)) >> 20);
-            printf("allocated %zu MiB for AdamW optimizer state v\n", (model->num_parameters * sizeof(float)) >> 20);
-        }
-
-        int block_size = 512;
-        int num_blocks = CEIL_DIV(model->num_parameters, block_size);
-        float beta1_correction = 1.0f - powf(beta1, t);
-        float beta2_correction = 1.0f - powf(beta2, t);
-        adamw_kernel2<<<num_blocks, block_size>>>(model->params_memory, model->grads_memory, model->m_memory, model->v_memory,
-                                                  model->num_parameters,
-                                                  learning_rate, beta1, beta2, beta1_correction, beta2_correction, eps, weight_decay);
-        cudaCheck(cudaGetLastError());
-    }
-        */
 
     pub fn update(
         &mut self,
