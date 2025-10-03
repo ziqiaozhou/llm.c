@@ -206,7 +206,8 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 // only using position 0 because it's a bit faster (copy less probs from GPU -> CPU)
                 // get the V-dimensional vector probs[0, t-1, :]
                 let mut acts = model.acts.as_mut().unwrap().inner();
-                let mut logits = acts.output.index_mut((t - 1) * padded_vocab_size..); // first row
+                let mut logits =
+                    acts.output.index_mut((t - 1) * padded_vocab_size..t * padded_vocab_size); // first row
                 logits.copy_to_host(&mut cpu_logits).unwrap();
                 // float coin = random_f32(&rng_state);
                 let coin = 0.5; //rng.gen_range(0.0..1.0);
@@ -232,7 +233,6 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
 
         let start = std::time::Instant::now();
         let (input, target) = train_loader.next_batch();
-        model.forward(cublas_handle, &input, &target, args.batch_size, args.seq_length);
         /*
         gpt2_forward(&model, train_loader.inputs, train_loader.targets, B, T);
         gpt2_zero_grad(&model);
@@ -240,6 +240,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         gpt2_update(&model, learning_rate, 0.9f, 0.999f, 1e-8f, 0.0f, step+1);
         cudaCheck(cudaDeviceSynchronize()); // finish all CUDA work to get
          */
+        model.forward(cublas_handle, &input, &target, args.batch_size, args.seq_length);
         model.zero_grad();
         model.backward(cublas_handle);
         model.update(args.learning_rate, 0.9, 0.999, 1e-8, 0.0, (step + 1) as i32);

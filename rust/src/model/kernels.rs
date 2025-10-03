@@ -577,17 +577,18 @@ pub(crate) fn attention_backward<'ctx, CN: GpuCtxSpace>(
     const BSIZE: usize = 256;
     let head_size = channel / num_heads;
     assert!(channel % num_heads == 0);
-    let dqkvr_len = 3 * batch_size * seq_len * channel;
+    let bsc_len = batch_size * seq_len * channel;
+    let dqkvr_len = 3 * bsc_len;
     assert!(dqkvr.len() >= dqkvr_len);
 
-    let (q, mut rest) = qkvr.split_at(batch_size * seq_len * channel);
-    let (k, v) = rest.split_at(batch_size * seq_len * channel);
-    let q = qkvr.index(0..batch_size * seq_len * channel);
+    let (q, mut rest) = qkvr.split_at(bsc_len);
+    let (k, v) = rest.split_at(bsc_len);
+    let q = qkvr.index(0..bsc_len);
 
-    let (dq, mut rest) = dqkvr.split_at_mut(batch_size * seq_len * head_size);
-    let (dk, dv) = rest.split_at_mut(batch_size * seq_len * head_size);
+    let (dq, mut rest) = dqkvr.split_at_mut(bsc_len);
+    let (dk, dv) = rest.split_at_mut(bsc_len);
 
-    let num_blocks = (batch_size * seq_len * channel).div_ceil(BSIZE);
+    let num_blocks = bsc_len.div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(num_blocks as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
     permute_kernel_backward::launch(
         config,

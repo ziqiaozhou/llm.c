@@ -224,9 +224,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let out_len = acts.output.len();
         let mut d_output = vec![0.0f32; out_len];
         */
-        let mut residual3 = acts.residual3;
-        let residual3_base = residual3.as_devptr();
-        let mut residual = &mut acts.encoded;
         let mut ln1w = params.ln1w;
         let mut ln1b = params.ln1b;
         let mut qkvw = params.qkvw;
@@ -256,6 +253,11 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mut fcproj = acts.fcproj;
         let num_layers = self.config.num_layers;
         for l in 0..num_layers {
+            let mut l_residual = acts.residual3.index_mut(
+                if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
+            );
+            let (mut res, mut l_residual3) =
+                if l == 0 { l_residual.split(0) } else { l_residual.split(bsize * seq * ch) };
             /*
             float* l_ln1w = params.ln1w + l * C;
             float* l_ln1b = params.ln1b + l * C;
@@ -320,8 +322,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             let mut l_fch_gelu =
                 fch_gelu.index_mut(l * bsize * seq * 4 * ch..(l + 1) * bsize * seq * 4 * ch);
             let mut l_fcproj = fcproj.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-            let mut l_residual3 =
-                residual3.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
             let scratch = &mut acts.output;
             /*
             layernorm_forward(l_ln1, l_ln1_mean, l_ln1_rstd, residual, l_ln1w, l_ln1b, B, T, C);
@@ -341,7 +341,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut l_ln1,
                 &mut l_ln1_mean,
                 &mut l_ln1_rstd,
-                &residual,
+                if l == 0 { &acts.encoded } else { &mut res },
                 &l_ln1w,
                 &l_ln1b,
                 bsize,
@@ -401,7 +401,14 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 ch,
             );
-            residual_forward(ctx, m, &mut l_res2, &residual, &l_attproj, bsize * seq * ch);
+            residual_forward(
+                ctx,
+                m,
+                &mut l_res2,
+                if l == 0 { &acts.encoded } else { &mut res },
+                &l_attproj,
+                bsize * seq * ch,
+            );
             layernorm_forward(
                 ctx,
                 m,
@@ -416,6 +423,17 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
             );
             matmul_forward(ctx, m, &mut l_fch, &l_ln2, &l_fcw, &l_fcb, bsize, seq, ch, 4 * ch);
+
+            /*let mut d_l_fch = vec![0.0f32; l_fch.len()];
+            l_fch.copy_to_host(&mut d_l_fch).unwrap();
+            for k in 0..20 {
+                for i in 0..10 {
+                    print!("{:.9} ", &d_l_fch[k * 10 + i]);
+                }
+                print!("\n")
+            }
+            print!("\n");
+            panic!();*/
             gelu_forward(ctx, m, &mut l_fch_gelu, &l_fch, bsize * seq * 4 * ch);
 
             // l_fch == l_fch
@@ -472,21 +490,12 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, residual, params.lnfw, params.lnfb, B, T, C);
         matmul_forward(acts.output, acts.lnf, params.wte, NULL, B, T, C, Vp);
         */
+        let residual = &mut acts
+            .residual3
+            .index_mut((num_layers - 1) * bsize * seq * ch..num_layers * bsize * seq * ch);
         let (lnf, lnf_mean, lnf_rstd) = (&mut acts.lnf, &mut acts.lnf_mean, &mut acts.lnf_rstd);
         let (lnfw, lnfb) = (&params.lnfw, &params.lnfb);
-        layernorm_forward(
-            ctx,
-            m,
-            lnf,
-            lnf_mean,
-            lnf_rstd,
-            &mut residual,
-            lnfw,
-            lnfb,
-            bsize,
-            seq,
-            ch,
-        );
+        layernorm_forward(ctx, m, lnf, lnf_mean, lnf_rstd, residual, lnfw, lnfb, bsize, seq, ch);
         let empty_tensor = &ctx.new_tensor_view([].as_slice()).unwrap();
         let mut acts = self.acts.as_mut().unwrap().inner();
         matmul_forward(
@@ -550,10 +559,10 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
 
     pub fn zero_grad(&mut self) {
         if let Some(grads) = &mut self.grads {
-            grads.tensor.memset(0);
+            grads.tensor.memset(0).expect("failed to zero grads");
         }
         if let Some(grads_acts) = &mut self.grads_acts {
-            grads_acts.tensor.memset(0);
+            grads_acts.tensor.memset(0).expect("failed to zero grads_acts");
         }
     }
 
@@ -648,17 +657,14 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         );
 
         for l in (0..num_layers).rev() {
-            let use_encoded = l == 0;
-
             let mut l_residual = acts.residual3.index_mut(
-                if use_encoded { 0 } else { (l - 1) * bsize * seq * ch }
-                    ..(l + 1) * bsize * seq * ch,
+                if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
             );
-            let (mut r1, mut dresidual) =
-                if use_encoded { l_residual.split(0) } else { l_residual.split(bsize * seq * ch) };
+            let (mut residual, mut dresidual) =
+                if l == 0 { l_residual.split(0) } else { l_residual.split(bsize * seq * ch) };
 
             /*
-                    float* l_ln1w = params.ln1w + l * C;
+            float* l_ln1w = params.ln1w + l * C;
             float* l_qkvw = params.qkvw + l * 3*C * C;
             float* l_attprojw = params.attprojw + l * C * C;
             float* l_ln2w = params.ln2w + l * C;
@@ -844,7 +850,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut dl_ln1w,
                 &mut dl_ln1b,
                 &dl_btc,
-                if use_encoded { &mut acts.encoded } else { &mut r1 },
+                if l == 0 { &mut acts.encoded } else { &mut residual },
                 &ln1w,
                 &ln1_mean,
                 &ln1_rstd,
