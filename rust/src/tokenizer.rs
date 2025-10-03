@@ -49,7 +49,7 @@ impl Tokenizer {
             panic!("Bad version in tokenizer file")
         }
 
-        let vocab_size = header[2] as u32;
+        let vocab_size = header[2];
         let mut token_table = vec![String::new(); vocab_size as usize];
 
         for token in &mut token_table {

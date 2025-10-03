@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize};
 use clap::Parser;
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, cuda_ctx};
-use rand::Rng;
 
 #[macro_use]
 mod model;
@@ -83,7 +82,7 @@ pub fn sample_softmax(logits: &[f32], coin: f32) -> i32 {
     let norm: f64 = logits.iter().map(|&x| (x as f64).exp()).sum();
 
     // scale the coin
-    let mut coin = coin * norm as f32;
+    let coin = coin * norm as f32;
 
     let mut cdf = 0.0f32;
     for (i, &x) in logits.iter().enumerate() {
@@ -113,7 +112,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     m: &GpuModule<NS>,
     args: &Args,
 ) {
-    let mut rng = rand::rng();
+    let rng = rand::rng();
     let cublas_handle = {
         let mut handle = MaybeUninit::uninit();
         unsafe {
@@ -137,7 +136,6 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     let mut model = GPT2::new(ctx, m, &args.model_path).unwrap_or_else(|_| {
         panic!("Error initializing model from checkpoint");
     });
-    let padded_vocab_size = model.config.padded_vocab_size;
     println!("| max_sequence_length T | {} |\n", model.config.max_seq_len);
     println!("| vocab_size V          | {} |\n", model.config.vocab_size);
     println!("| padded_vocab_size Vp  | {} |\n", model.config.padded_vocab_size);
@@ -165,11 +163,12 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
     );
 
     let mut tokenizer = tokenizer::Tokenizer::new(&args.tokenizer_path);
-
+    let padded_vocab_size = model.config.padded_vocab_size;
+    let vocab_size = model.config.vocab_size;
     // some memory for generating samples from the model
     let rng_state: u64 = 1337;
     let mut gen_tokens = vec![0i32; args.batch_size * args.seq_length];
-    let mut cpu_logits = vec![0.0f32; model.config.vocab_size];
+    let mut cpu_logits = vec![0.0f32; vocab_size];
 
     // train
     for step in 0..=train_loader.num_batches {
@@ -206,8 +205,8 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
                 // only using position 0 because it's a bit faster (copy less probs from GPU -> CPU)
                 // get the V-dimensional vector probs[0, t-1, :]
                 let mut acts = model.acts.as_mut().unwrap().inner();
-                let mut logits =
-                    acts.output.index_mut((t - 1) * padded_vocab_size..t * padded_vocab_size); // first row
+                let output_offset = (t - 1) * padded_vocab_size;
+                let logits = acts.output.index_mut(output_offset..(output_offset + vocab_size)); // first row
                 logits.copy_to_host(&mut cpu_logits).unwrap();
                 // float coin = random_f32(&rng_state);
                 let coin = 0.5; //rng.gen_range(0.0..1.0);

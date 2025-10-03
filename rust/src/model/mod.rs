@@ -117,10 +117,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let num_parameters: usize = param_sizes.iter().sum();
         println!("num_parameters: {}", num_parameters);
         let cpu_params = &cpu_params[0..num_parameters];
-        println!("cpu_params\n");
-        for i in 0..1000 {
-            print!("{:.9} ", cpu_params[i]);
-        }
         let params = ParameterTensors::new(ctx, param_sizes, cpu_params);
 
         Ok(GPT2 {
@@ -156,16 +152,12 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let ch = self.config.channels;
         let nh = self.config.num_heads;
         let m = self.module;
-        let seq = seq;
         let bsize = batch_size;
+        let vocab = self.config.vocab_size;
         let pad_vocab = self.config.padded_vocab_size;
         assert!(cpu_inputs.len() >= bsize * seq);
-        cpu_inputs
-            .iter()
-            .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
-        cpu_targets
-            .iter()
-            .for_each(|&x| assert!(0 <= x && (x as usize) < self.config.vocab_size, "{}", x));
+        cpu_inputs.iter().for_each(|&x| assert!(0 <= x && (x as usize) < vocab, "{}", x));
+        cpu_targets.iter().for_each(|&x| assert!(0 <= x && (x as usize) < vocab, "{}", x));
 
         // allocate space for all the activations if needed (done here, lazily)
         if self.acts.is_none() {
@@ -187,7 +179,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         } else {
             self.inputs.as_mut().unwrap().copy_from_host(&cpu_inputs[0..bsize * seq]).unwrap();
         }
-        if cpu_targets.len() > 0 {
+        if !cpu_targets.is_empty() {
             if self.targets.is_none() {
                 self.targets = Some(ctx.new_tensor_view(&cpu_targets[0..bsize * seq]).unwrap());
             } else {
@@ -253,7 +245,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mut fcproj = acts.fcproj;
         let num_layers = self.config.num_layers;
         for l in 0..num_layers {
-            let mut l_residual = acts.residual3.index_mut(
+            let l_residual = acts.residual3.index_mut(
                 if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
             );
             let (mut res, mut l_residual3) =
@@ -292,18 +284,18 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             // need not be stored for backward
             float* scratch = acts.output;
             */
-            let mut l_ln1w = ln1w.index_mut(l * ch..(l + 1) * ch);
-            let mut l_ln1b = ln1b.index_mut(l * ch..(l + 1) * ch);
-            let mut l_qkvw = qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
-            let mut l_qkvb = qkvb.index_mut(l * 3 * ch..(l + 1) * 3 * ch);
-            let mut l_attprojw = attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
-            let mut l_attprojb = attprojb.index_mut(l * ch..(l + 1) * ch);
-            let mut l_ln2w = ln2w.index_mut(l * ch..(l + 1) * ch);
-            let mut l_ln2b = ln2b.index_mut(l * ch..(l + 1) * ch);
-            let mut l_fcw = fcw.index_mut(l * 4 * ch * ch..(l + 1) * 4 * ch * ch);
-            let mut l_fcb = fcb.index_mut(l * 4 * ch..(l + 1) * 4 * ch);
-            let mut l_fcprojw = fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
-            let mut l_fcprojb = fcprojb.index_mut(l * ch..(l + 1) * ch);
+            let l_ln1w = ln1w.index_mut(l * ch..(l + 1) * ch);
+            let l_ln1b = ln1b.index_mut(l * ch..(l + 1) * ch);
+            let l_qkvw = qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
+            let l_qkvb = qkvb.index_mut(l * 3 * ch..(l + 1) * 3 * ch);
+            let l_attprojw = attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
+            let l_attprojb = attprojb.index_mut(l * ch..(l + 1) * ch);
+            let l_ln2w = ln2w.index_mut(l * ch..(l + 1) * ch);
+            let l_ln2b = ln2b.index_mut(l * ch..(l + 1) * ch);
+            let l_fcw = fcw.index_mut(l * 4 * ch * ch..(l + 1) * 4 * ch * ch);
+            let l_fcb = fcb.index_mut(l * 4 * ch..(l + 1) * 4 * ch);
+            let l_fcprojw = fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
+            let l_fcprojb = fcprojb.index_mut(l * ch..(l + 1) * ch);
 
             let mut l_ln1 = ln1.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
             let mut l_ln1_mean = ln1_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
@@ -348,21 +340,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 seq,
                 ch,
             );
-            // residual == residual
-            // l_ln1w == l_ln1w
-            // l_ln1_rstd!= l_ln1_rstd
-            /*let mut d_output = vec![0.0f32; l_ln1.len()];
-            l_ln1.copy_to_host(&mut d_output).unwrap();
-            for k in 0..20 {
-                for i in 0..10 {
-                    print!("{:.9} ", &d_output[k * 10 + i]);
-                }
-                print!("\n")
-            }
-            print!("\n");
-            panic!();*/
-            // matmul_forward(scratch, l_ln1, l_qkvw, l_qkvb, B, T, C, 3*C);
-            matmul_forward(ctx, m, scratch, &mut l_ln1, &l_qkvw, &l_qkvb, bsize, seq, ch, 3 * ch);
+            matmul_forward(ctx, m, scratch, &l_ln1, &l_qkvw, &l_qkvb, bsize, seq, ch, 3 * ch);
 
             attention_forward(
                 ctx,
@@ -377,17 +355,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 nh,
             );
-
-            /*let mut d_output = vec![0.0f32; l_qkvr.len()];
-            l_qkvr.copy_to_host(&mut d_output).unwrap();
-            for k in 0..20 {
-                for i in 0..10 {
-                    print!("{:.9} ", &d_output[k * 10 + i]);
-                }
-                print!("\n")
-            }
-            print!("\n");
-            panic!();*/
 
             matmul_forward(
                 ctx,
@@ -477,19 +444,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             );
             residual_forward(ctx, m, &mut l_residual3, &l_res2, &l_fcproj, bsize * seq * ch);
         }
-        /*scratch.copy_to_host(&mut d_output, out_len, ctx).unwrap();
-        for k in 0..20 {
-            for i in 0..10 {
-                print!("{:.9} ", &d_output[k * 10 + i]);
-            }
-            print!("\n")
-        }
-        panic!();*/
-        /*
-        residual = acts.residual3 + (L-1) * B * T * C; // last residual is in residual3
-        layernorm_forward(acts.lnf, acts.lnf_mean, acts.lnf_rstd, residual, params.lnfw, params.lnfb, B, T, C);
-        matmul_forward(acts.output, acts.lnf, params.wte, NULL, B, T, C, Vp);
-        */
         let residual = &mut acts
             .residual3
             .index_mut((num_layers - 1) * bsize * seq * ch..num_layers * bsize * seq * ch);
@@ -511,28 +465,10 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             pad_vocab,
         );
 
-        /*
-        fused_classifier3(acts.output, acts.losses, NULL, model->targets, B, T, V, Vp);
-        // for convenience also evaluate the mean loss (TODO re-think this compute+sync point)
-        // move the (B,T) losses to CPU
-        cudaCheck(cudaMemcpy(model->cpu_losses, acts.losses, B * T * sizeof(float), cudaMemcpyDeviceToHost));
-        float mean_loss = 0.0f;
-        for (int i=0; i<B*T; i++) { mean_loss += model->cpu_losses[i]; }
-        mean_loss /= B*T;
-        model->mean_loss = mean_loss;
-        */
-        if cpu_targets.len() == 0 {
+        if cpu_targets.is_empty() {
             self.mean_loss = -1.0;
             return;
         }
-        /*output.copy_to_host(&mut d_output, out_len, ctx).unwrap();
-        for k in 0..20 {
-            for i in 0..10 {
-                print!("{:.17} ", &d_output[k * 10 + i]);
-            }
-            print!("\n")
-        }
-        panic!();*/
         let targets = &self.targets.as_mut().unwrap();
         fused_classifier3(
             ctx,
@@ -657,7 +593,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         );
 
         for l in (0..num_layers).rev() {
-            let mut l_residual = acts.residual3.index_mut(
+            let l_residual = acts.residual3.index_mut(
                 if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
             );
             let (mut residual, mut dresidual) =
@@ -698,14 +634,14 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             float* l_fch_gelu = acts.fch_gelu + l * B * T * 4*C; */
             let dl_btc = &mut acts.lnf;
             let dl_bt4c = &mut grads_acts.bt4c;
-            let mut dl_preatt = &mut grads_acts.preatt;
+            let dl_preatt = &mut grads_acts.preatt;
             let scratch = &mut acts.output;
-            let mut ln1w = params.ln1w.index_mut(l * ch..(l + 1) * ch);
-            let mut qkvw = params.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
-            let mut attprojw = params.attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
-            let mut ln2w = params.ln2w.index_mut(l * ch..(l + 1) * ch);
-            let mut fcw = params.fcw.index_mut(l * 4 * ch * ch..(l + 1) * 4 * ch * ch);
-            let mut fcprojw = params.fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
+            let ln1w = params.ln1w.index_mut(l * ch..(l + 1) * ch);
+            let qkvw = params.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
+            let attprojw = params.attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
+            let ln2w = params.ln2w.index_mut(l * ch..(l + 1) * ch);
+            let fcw = params.fcw.index_mut(l * 4 * ch * ch..(l + 1) * 4 * ch * ch);
+            let fcprojw = params.fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
             let mut dl_ln1w = grads.ln1w.index_mut(l * ch..(l + 1) * ch);
             let mut dl_ln1b = grads.ln1b.index_mut(l * ch..(l + 1) * ch);
             let mut dl_qkvw = grads.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
@@ -718,26 +654,22 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             let mut dl_fcb = grads.fcb.index_mut(l * 4 * ch..(l + 1) * 4 * ch);
             let mut dl_fcprojw = grads.fcprojw.index_mut(l * ch * 4 * ch..(l + 1) * ch * 4 * ch);
             let mut dl_fcprojb = grads.fcprojb.index_mut(l * ch..(l + 1) * ch);
-            let mut ln1 = acts.ln1.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-            let mut ln1_mean = acts.ln1_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
-            let mut ln1_rstd = acts.ln1_rstd.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
-            let mut qkvr =
+            let ln1 = acts.ln1.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
+            let ln1_mean = acts.ln1_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
+            let ln1_rstd = acts.ln1_rstd.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
+            let qkvr =
                 acts.qkvr.index_mut(l * bsize * seq * 3 * ch..(l + 1) * bsize * seq * 3 * ch);
             let mut atty = acts.atty.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-            let mut att =
+            let att =
                 acts.att.index_mut(l * bsize * nh * seq * seq..(l + 1) * bsize * nh * seq * seq);
-            let mut residual2 =
+            let residual2 =
                 acts.residual2.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-            let residual2 = &mut residual2;
-            let mut ln2 = acts.ln2.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
-            let ln2 = &mut ln2;
-            let mut ln2_mean = acts.ln2_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
-            let ln2_mean = &mut ln2_mean;
-            let mut ln2_rstd = acts.ln2_rstd.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
-            let ln2_rstd = &mut ln2_rstd;
+            let ln2 = acts.ln2.index_mut(l * bsize * seq * ch..(l + 1) * bsize * seq * ch);
+            let ln2_mean = acts.ln2_mean.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
+            let ln2_rstd = acts.ln2_rstd.index_mut(l * bsize * seq..(l + 1) * bsize * seq);
             let mut fch =
                 acts.fch.index_mut(l * bsize * seq * 4 * ch..(l + 1) * bsize * seq * 4 * ch);
-            let mut fch_gelu =
+            let fch_gelu =
                 acts.fch_gelu.index_mut(l * bsize * seq * 4 * ch..(l + 1) * bsize * seq * 4 * ch);
             //matmul_backward(dl_bt4c, dl_fcprojw, dl_fcprojb, dresidual, l_fch_gelu, l_fcprojw, B, T, 4*C, C);
             matmul_backward(
@@ -849,7 +781,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut dresidual,
                 &mut dl_ln1w,
                 &mut dl_ln1b,
-                &dl_btc,
+                dl_btc,
                 if l == 0 { &mut acts.encoded } else { &mut residual },
                 &ln1w,
                 &ln1_mean,
@@ -943,7 +875,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let grads_memory = &self.grads.as_ref().unwrap().tensor;
         const BSIZE: usize = 512;
 
-        let num_blocks = ((num_parameters + BSIZE - 1) / BSIZE) as u32;
+        let num_blocks = num_parameters.div_ceil(BSIZE) as u32;
         let beta1_correction = 1.0f32 - beta1.powi(step);
         let beta2_correction = 1.0f32 - beta2.powi(step);
         let config = gpu_host::gpu_config!(num_blocks, 1, 1, @const BSIZE as u32, 1, 1, 0);

@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use gpu_host::{GpuCtxSpace, TensorViewMut};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -41,23 +43,25 @@ impl GPT2Config {
     pub(crate) fn get_params_sizes(&self) -> [usize; NUM_PARAMETER_TENSORS] {
         let mut param_sizes = [0; NUM_PARAMETER_TENSORS];
         let config = self;
+        let ch = config.channels;
+        let num_layers = config.num_layers;
 
-        param_sizes[0] = config.padded_vocab_size * config.channels; // wte
-        param_sizes[1] = config.max_seq_len * config.channels; // wpe
-        param_sizes[2] = config.num_layers * config.channels; // ln1w
-        param_sizes[3] = config.num_layers * config.channels; // ln1b
-        param_sizes[4] = config.num_layers * (3 * config.channels) * config.channels; // qkvw
-        param_sizes[5] = config.num_layers * (3 * config.channels); // qkvb
-        param_sizes[6] = config.num_layers * config.channels * config.channels; // attprojw
-        param_sizes[7] = config.num_layers * config.channels; // attprojb
-        param_sizes[8] = config.num_layers * config.channels; // ln2w
-        param_sizes[9] = config.num_layers * config.channels; // ln2b
-        param_sizes[10] = config.num_layers * (4 * config.channels) * config.channels; // fcw
-        param_sizes[11] = config.num_layers * (4 * config.channels); // fcb
-        param_sizes[12] = config.num_layers * config.channels * (4 * config.channels); // fcprojw
-        param_sizes[13] = config.num_layers * config.channels; // fcprojb
-        param_sizes[14] = config.channels; // lnfw
-        param_sizes[15] = config.channels; // lnfb
+        param_sizes[0] = config.padded_vocab_size * ch; // wte
+        param_sizes[1] = config.max_seq_len * ch; // wpe
+        param_sizes[2] = num_layers * ch; // ln1w
+        param_sizes[3] = num_layers * ch; // ln1b
+        param_sizes[4] = num_layers * (3 * ch) * ch; // qkvw
+        param_sizes[5] = num_layers * (3 * ch); // qkvb
+        param_sizes[6] = num_layers * ch * ch; // attprojw
+        param_sizes[7] = num_layers * ch; // attprojb
+        param_sizes[8] = num_layers * ch; // ln2w
+        param_sizes[9] = num_layers * ch; // ln2b
+        param_sizes[10] = num_layers * (4 * ch) * ch; // fcw
+        param_sizes[11] = num_layers * (4 * ch); // fcb
+        param_sizes[12] = num_layers * ch * (4 * ch); // fcprojw
+        param_sizes[13] = num_layers * ch; // fcprojb
+        param_sizes[14] = ch; // lnfw
+        param_sizes[15] = ch; // lnfb
 
         param_sizes
     }
@@ -69,53 +73,45 @@ impl GPT2Config {
     ) -> [usize; NUM_ACTIVATION_TENSORS] {
         let mut act_sizes = [0; NUM_ACTIVATION_TENSORS];
         let config = self;
+        let ch = config.channels;
+        let num_layers = config.num_layers;
+        let nh = config.num_heads;
+        let padded_vocab_size = config.padded_vocab_size;
 
-        act_sizes[0] = batch_size * seq_len * config.channels; // encoded
-        act_sizes[1] = config.num_layers * batch_size * seq_len * config.channels; // ln1
-        act_sizes[2] = config.num_layers * batch_size * seq_len; // ln1_mean
-        act_sizes[3] = config.num_layers * batch_size * seq_len; // ln1_rstd
-        act_sizes[4] = config.num_layers * batch_size * seq_len * config.channels; // atty
-        act_sizes[5] = config.num_layers * batch_size * config.num_heads * seq_len * seq_len; // att
-        act_sizes[6] = config.num_layers * batch_size * seq_len * config.channels; // attproj
-        act_sizes[7] = config.num_layers * batch_size * seq_len * config.channels; // residual2
-        act_sizes[8] = config.num_layers * batch_size * seq_len * config.channels; // ln2
-        act_sizes[9] = config.num_layers * batch_size * seq_len; // ln2_mean
-        act_sizes[10] = config.num_layers * batch_size * seq_len; // ln2_rstd
-        act_sizes[11] = config.num_layers * batch_size * seq_len * 4 * config.channels; // fch
-        act_sizes[12] = config.num_layers * batch_size * seq_len * 4 * config.channels; // fch_gelu
-        act_sizes[13] = config.num_layers * batch_size * seq_len * config.channels; // fcproj
-        act_sizes[14] = config.num_layers * batch_size * seq_len * config.channels; // residual3
-        act_sizes[15] = batch_size * seq_len * config.channels; // lnf
+        act_sizes[0] = batch_size * seq_len * ch; // encoded
+        act_sizes[1] = num_layers * batch_size * seq_len * ch; // ln1
+        act_sizes[2] = num_layers * batch_size * seq_len; // ln1_mean
+        act_sizes[3] = num_layers * batch_size * seq_len; // ln1_rstd
+        act_sizes[4] = num_layers * batch_size * seq_len * ch; // atty
+        act_sizes[5] = num_layers * batch_size * nh * seq_len * seq_len; // att
+        act_sizes[6] = num_layers * batch_size * seq_len * ch; // attproj
+        act_sizes[7] = num_layers * batch_size * seq_len * ch; // residual2
+        act_sizes[8] = num_layers * batch_size * seq_len * ch; // ln2
+        act_sizes[9] = num_layers * batch_size * seq_len; // ln2_mean
+        act_sizes[10] = num_layers * batch_size * seq_len; // ln2_rstd
+        act_sizes[11] = num_layers * batch_size * seq_len * 4 * ch; // fch
+        act_sizes[12] = num_layers * batch_size * seq_len * 4 * ch; // fch_gelu
+        act_sizes[13] = num_layers * batch_size * seq_len * ch; // fcproj
+        act_sizes[14] = num_layers * batch_size * seq_len * ch; // residual3
+        act_sizes[15] = batch_size * seq_len * ch; // lnf
         act_sizes[16] = batch_size * seq_len; // lnf_mean
         act_sizes[17] = batch_size * seq_len; // lnf_rstd
         act_sizes[18] = batch_size * seq_len; // losses
-        act_sizes[19] = config.num_layers * batch_size * seq_len * 3 * config.channels; // qkvr
-        act_sizes[20] = batch_size
-            * seq_len
-            * std::cmp::max(
-                3 * config.channels,
-                std::cmp::max(config.num_heads * seq_len, config.padded_vocab_size),
-            ); // output / scratch
+        act_sizes[19] = num_layers * batch_size * seq_len * 3 * ch; // qkvr
+        act_sizes[20] = batch_size * seq_len * max(3 * ch, max(nh * seq_len, padded_vocab_size)); // output / scratch
 
         act_sizes
     }
 
-    /*
-        void fill_in_grad_act_sizes(size_t* act_sizes, int B, int T, GPT2Config config) {
-        size_t NH = config.num_heads;
-        size_t C = config.channels;
-        act_sizes[0] = B * T * 4 * C; // bt4c
-        act_sizes[1] = B * NH * T * T; // preatt
-        act_sizes[2] = B * T * C; // residual3
-    }
-        */
-    pub fn get_grad_act_sizes(&self, batch_size: usize, seq_len: usize) -> [usize; 3] {
+    pub(crate) fn get_grad_act_sizes(&self, batch_size: usize, seq_len: usize) -> [usize; 3] {
         let mut grad_act_sizes = [0; 3];
         let config = self;
+        let ch = config.channels;
+        let nh = config.num_heads;
 
-        grad_act_sizes[0] = batch_size * seq_len * 4 * config.channels; // bt4c
-        grad_act_sizes[1] = batch_size * config.num_heads * seq_len * seq_len; // preatt
-        grad_act_sizes[2] = batch_size * seq_len * config.channels; // residual3
+        grad_act_sizes[0] = batch_size * seq_len * 4 * ch; // bt4c
+        grad_act_sizes[1] = batch_size * nh * seq_len * seq_len; // preatt
+        grad_act_sizes[2] = batch_size * seq_len * ch; // residual3
 
         grad_act_sizes
     }
@@ -157,10 +153,10 @@ macro_rules! new_tensors {
             pub fn inner<'a>(&'a mut self) -> $name<'a>
             {
                 let param_sizes = self.param_sizes;
-                let mut params = self.tensor.index_mut(..);
+                let params = self.tensor.index_mut(..);
                 let mut i = 0;
                 $(
-                    let ($field, mut params) = params.split(param_sizes[i]);
+                    let ($field, params) = params.split(param_sizes[i]);
                     i += 1;
                 )*
                 let _ = params;
@@ -330,17 +326,6 @@ pub struct ActivationTensorsInner<'g> {
     /// Query, Key, Value (L, B, T, 3*C)
     pub qkvr: TensorViewMut<'g, [f32]>,
     pub output: TensorViewMut<'g, [f32]>, // (B, T, max(3*C, NH*T, V))
-}
-}
-
-new_tensors! {
-pub const NUM_BATCH_TENSORS: usize = 2;
-pub struct BatchTensor<'g> {
-    pub tensor: TensorViewMut<'g, [i32]>,
-}
-pub struct BatchTensorInner<'g> {
-    pub input: TensorViewMut<'g, [i32]>,
-    pub target: TensorViewMut<'g, [i32]>,
 }
 }
 

@@ -581,7 +581,7 @@ pub(crate) fn attention_backward<'ctx, CN: GpuCtxSpace>(
     let dqkvr_len = 3 * bsc_len;
     assert!(dqkvr.len() >= dqkvr_len);
 
-    let (q, mut rest) = qkvr.split_at(bsc_len);
+    let (q, rest) = qkvr.split_at(bsc_len);
     let (k, v) = rest.split_at(bsc_len);
     let q = qkvr.index(0..bsc_len);
 
