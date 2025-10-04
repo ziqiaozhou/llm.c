@@ -23,6 +23,17 @@ macro_rules! top_path {
     };
 }
 
+#[macro_export]
+macro_rules! time_it {
+    ($func:expr) => {{
+        let start = std::time::Instant::now();
+        let result = $func;
+        println!("{:?}: {}", stringify!($func), start.elapsed());
+        result
+    }};
+}
+
+
 #[derive(Parser, Debug)]
 struct Args {
     /// Name of the user

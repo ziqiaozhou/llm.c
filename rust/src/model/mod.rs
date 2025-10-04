@@ -244,6 +244,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mut fch_gelu = acts.fch_gelu;
         let mut fcproj = acts.fcproj;
         let num_layers = self.config.num_layers;
+        let start = std::time::Instant::now();
         for l in 0..num_layers {
             let l_residual = acts.residual3.index_mut(
                 if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
@@ -390,46 +391,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
             );
             matmul_forward(ctx, m, &mut l_fch, &l_ln2, &l_fcw, &l_fcb, bsize, seq, ch, 4 * ch);
-
-            /*let mut d_l_fch = vec![0.0f32; l_fch.len()];
-            l_fch.copy_to_host(&mut d_l_fch).unwrap();
-            for k in 0..20 {
-                for i in 0..10 {
-                    print!("{:.9} ", &d_l_fch[k * 10 + i]);
-                }
-                print!("\n")
-            }
-            print!("\n");
-            panic!();*/
             gelu_forward(ctx, m, &mut l_fch_gelu, &l_fch, bsize * seq * 4 * ch);
-
-            // l_fch == l_fch
-            // l_fch_gelu != l_fch_gelu, f32 reorder cause difference
-            /*if l == 0 {
-                let GELU_SCALING_FACTOR: f32 = (2.0f32 / core::f32::consts::PI).sqrt();
-                println!("GELU_SCALING_FACTOR = {:.9}\n", GELU_SCALING_FACTOR);
-                println!("after attention layer {}", l);
-                l_fch.copy_to_host(&mut d_output, 500, ctx).unwrap();
-                for k in 0..20 {
-                    for i in 0..10 {
-                        print!("{:.12} ", &d_output[k * 10 + i + 300]);
-                    }
-                    print!("\n")
-                }
-                print!("\n");
-                print!("\n");
-                l_fch_gelu.copy_to_host(&mut d_output, 500, ctx).unwrap();
-                for k in 0..20 {
-                    for i in 0..10 {
-                        print!("{:.12} ", &d_output[k * 10 + i + 300]);
-                    }
-                    print!("\n")
-                }
-                print!("\n");
-                print!("\n");
-
-                panic!();
-            }*/
             matmul_forward(
                 ctx,
                 m,
@@ -444,6 +406,8 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             );
             residual_forward(ctx, m, &mut l_residual3, &l_res2, &l_fcproj, bsize * seq * ch);
         }
+        println!("time for {} layers: {:?}", num_layers, start.elapsed());
+        let start = std::time::Instant::now();
         let residual = &mut acts
             .residual3
             .index_mut((num_layers - 1) * bsize * seq * ch..num_layers * bsize * seq * ch);
@@ -490,9 +454,9 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mean_loss = self.cpu_losses.as_ref().unwrap()[0..(bsize * seq)].iter().sum::<f32>()
             / (bsize * seq) as f32;
         self.mean_loss = mean_loss;
+        println!("time for final layer and loss: {:?}", start.elapsed());
         println!("mean loss: {}", mean_loss);
     }
-
     pub fn zero_grad(&mut self) {
         if let Some(grads) = &mut self.grads {
             grads.tensor.memset(0).expect("failed to zero grads");
