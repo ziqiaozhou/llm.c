@@ -46,7 +46,7 @@ struct Args {
     val_loss_every: usize,
     #[arg(default_value_t = 20)]
     val_max_steps: usize,
-    #[arg(default_value_t = 12)]
+    #[arg(default_value_t = 20)]
     sample_every: usize,
     #[arg(default_value_t = 64)]
     gen_t: usize,

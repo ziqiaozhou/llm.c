@@ -591,22 +591,16 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             seq,
             ch,
         );
-
+        let btc_len = bsize * seq * ch;
+        let mut dresidual = grads_acts.residual3;
+        // ok here.
         for l in (0..num_layers).rev() {
-            let l_residual = acts.residual3.index_mut(
-                if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
-            );
-            let (mut residual, mut dresidual) =
-                if l == 0 { l_residual.split(0) } else { l_residual.split(bsize * seq * ch) };
-
-            /*
-            float* l_ln1w = params.ln1w + l * C;
-            float* l_qkvw = params.qkvw + l * 3*C * C;
-            float* l_attprojw = params.attprojw + l * C * C;
-            float* l_ln2w = params.ln2w + l * C;
-            float* l_fcw = params.fcw + l * 4*C * C;
-            float* l_fcprojw = params.fcprojw + l * C * 4*C;
-            */
+            // residual = l == 0 ? acts.encoded : acts.residual3 + (l-1) * B * T * C;
+            let residual = if l == 0 {
+                &acts.encoded
+            } else {
+                &acts.residual3.index((l - 1) * bsize * seq * ch..l * bsize * seq * ch)
+            };
             let ln1w = params.ln1w.index_mut(l * ch..(l + 1) * ch);
             let qkvw = params.qkvw.index_mut(l * 3 * ch * ch..(l + 1) * 3 * ch * ch);
             let attprojw = params.attprojw.index_mut(l * ch * ch..(l + 1) * ch * ch);
@@ -695,6 +689,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             // layernorm_backward(dresidual, dl_ln2w, dl_ln2b, dl_btc, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C);
             // matmul_backward(dl_btc, dl_attprojw, dl_attprojb, dresidual, l_atty, l_attprojw, B, T, C, C);
             // we more B x T x (4)C buffers. l_atty and l_fch aren't needed anymore at this point, so reuse their memory
+            // wrong dl_fcprojw.
             matmul_backward(
                 ctx,
                 m,
@@ -702,7 +697,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 dl_bt4c,
                 &mut dl_fcprojw,
                 Some(&mut dl_fcprojb),
-                &dresidual,
+                &mut dresidual,
                 &fch_gelu,
                 &fcprojw,
                 bsize,
@@ -710,8 +705,23 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 4 * ch,
                 ch,
             );
-            //gelu_backward(dl_bt4c, l_fch, dl_bt4c, B*T*4*C);
+            // correct until here.
+            /*
+            println!("bt_bt4c\n{}", dl_bt4c);
+            println!("dl_fcprojw\n{}", dl_fcprojw);
+            println!("dl_fcprojb\n{}", dl_fcprojb);
+            println!("dresidual\n{}", dresidual);
+            println!("fch_gelu\n{}", fch_gelu);
+            println!("fcprojw\n{}", fcprojw);
+            panic!();
+            */
+            // gelu_backward(dl_bt4c, l_fch, dl_bt4c, B*T*4*C);
+            //println!("dl_bt4c\n{}", dl_bt4c);
             gelu_backward(ctx, m, dl_bt4c, &fch, bsize * seq * 4 * ch);
+            // correct until here.
+            /*println!("dl_bt4c\n{}", dl_bt4c);
+            println!("fch\n{}", fch);
+            panic!();*/
             // matmul_backward(dl_btc, dl_fcw, dl_fcb, dl_bt4c, l_ln2, l_fcw, B, T, C, 4 * C);
             matmul_backward(
                 ctx,
@@ -728,6 +738,15 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 4 * ch,
             );
+            /* correct until here.
+            println!("dl_btc\n{}", dl_btc);
+            println!("dl_fcw\n{}", dl_fcw);
+            println!("dl_fcb\n{}", dl_fcb);
+            println!("dl_bt4c\n{}", dl_bt4c);
+            println!("ln2\n{}", ln2);
+            println!("fcw\n{}", fcw);
+            panic!();
+            */
             //layernorm_backward(dresidual, dl_ln2w, dl_ln2b, dl_btc, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C);
             layernorm_backward(
                 ctx,
@@ -735,7 +754,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut dresidual,
                 &mut dl_ln2w,
                 &mut dl_ln2b,
-                dl_bt4c,
+                dl_btc,
                 &residual2,
                 &ln2w,
                 &ln2_mean,
@@ -744,6 +763,15 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 seq,
                 ch,
             );
+            /*println!("dresidual\n{}", dresidual);
+            println!("dl_ln2w\n{}", dl_ln2w);
+            println!("dl_ln2b\n{}", dl_ln2b);
+            println!("dl_btc\n{}", dl_btc);
+            println!("residual2\n{}", residual2);
+            println!("ln2w\n{}", ln2w);
+            println!("ln2_mean\n{}", ln2_mean);
+            println!("ln2_rstd\n{}", ln2_rstd);
+            panic!();*/
             // matmul_backward(dl_btc, dl_attprojw, dl_attprojb, dresidual, l_atty, l_attprojw, B, T, C, C);
             matmul_backward(
                 ctx,
@@ -766,6 +794,14 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             // matmul_backward(dl_btc, dl_qkvw, dl_qkvb, dl_bt4c, l_ln1, l_qkvw, B, T, C, 3 * C);
             // layernorm backward does += to dresidual, so it correctly accumulates gradient for the Attention block above
             // layernorm_backward(dresidual, dl_ln1w, dl_ln1b, dl_btc, residual, l_ln1w, l_ln1_mean, l_ln1_rstd, B, T, C);
+            /*println!("backward updated: dl_fcprojw\n{}", dl_fcprojw);
+            println!("backward updated: dl_fcw\n{}", dl_fcw);
+            println!("backward updated: dl_attprojw\n{}", dl_attprojw);
+            println!("backward updated: dl_qkvw\n{}", dl_qkvw);
+            println!("backward updated: dl_ln2w\n{}", dl_ln2w);
+            println!("backward updated: dl_ln1w\n{}", dl_ln1w);
+            println!("backward updated: dresidual\n{}", dresidual);
+            panic!();*/
             attention_backward(
                 ctx,
                 m,
@@ -783,6 +819,16 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 nh,
             );
+            /*println!("dl_bt4c\n{}", dl_bt4c);
+            println!("fch\n{}", fch);
+            println!("dl_preatt\n{}", dl_preatt);
+            println!("scratch\n{}", scratch);
+            println!("atty\n{}", atty);
+            println!("dl_btc\n{}", dl_btc);
+            println!("qkvr\n{}", qkvr);
+            println!("att\n{}", att);
+            panic!();*/
+            // matmul_backward(dl_btc, dl_qkvw, dl_qkvb, dl_bt4c, l_ln1, l_qkvw, B, T, C, 3 * C);
             matmul_backward(
                 ctx,
                 m,
@@ -805,7 +851,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut dl_ln1w,
                 &mut dl_ln1b,
                 dl_btc,
-                if l == 0 { &mut acts.encoded } else { &mut residual },
+                &residual,
                 &ln1w,
                 &ln1_mean,
                 &ln1_rstd,
@@ -816,8 +862,22 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         }
         // encoder_backward(grads.wte, grads.wpe, dresidual, model->inputs, B, T, C);
         let inputs = &mut self.inputs.as_mut().unwrap();
-        let residual = acts.residual3.index_mut(0..bsize * seq * ch);
-        encoder_backward(ctx, m, &mut grads.wte, &mut grads.wpe, &residual, inputs, bsize, seq, ch);
+        encoder_backward(
+            ctx,
+            m,
+            &mut grads.wte,
+            &mut grads.wpe,
+            &dresidual,
+            inputs,
+            bsize,
+            seq,
+            ch,
+        );
+        /*println!("wte\n{}", grads.wte);
+        println!("wpe\n{}", grads.wpe);
+        println!("dresidual\n{}", dresidual);
+        println!("inputs\n{}", inputs);
+        panic!();*/
     }
 
     pub fn update(
@@ -877,5 +937,10 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             weight_decay,
         )
         .expect("Failed to launch adamw kernel");
+        /*println!("param_memory\n{}", param_memory);
+        println!("grads_memory\n{}", grads_memory);
+        println!("m_memory\n{}", m_memory);
+        println!("v_memory\n{}", v_memory);
+        panic!();*/
     }
 }
