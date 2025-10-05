@@ -1,6 +1,6 @@
 use cublas_sys::{cublasSgemm_v2, cublasSgemmStridedBatched};
 use cudarc::cublas::sys as cublas_sys;
-use gpu::float4;
+use gpu::Float4;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, TensorView, TensorViewMut};
 use llm_rs_gpu::*;
 
@@ -25,11 +25,11 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
     let n = batch_size * seq_len * channel;
     const BSIZE: usize = 512;
     let grid_size = (n / 4).div_ceil(BSIZE);
-    let config = gpu_host::gpu_config!(grid_size as u32, 0, 0, @const BSIZE as u32, 0, 0, 0);
-    let out = unsafe { &mut *(out as *mut _ as *mut TensorViewMut<'_, [float4]>) };
-    let wte = unsafe { &*(wte as *const _ as *const TensorViewMut<'_, [float4]>) };
-    let wpe = unsafe { &*(wpe as *const _ as *const TensorViewMut<'_, [float4]>) };
+    let out = unsafe { &mut *(out as *mut _ as *mut TensorViewMut<'_, [Float4]>) };
+    let wte = unsafe { &*(wte as *const _ as *const TensorViewMut<'_, [Float4]>) };
+    let wpe = unsafe { &*(wpe as *const _ as *const TensorViewMut<'_, [Float4]>) };
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    let start = std::time::Instant::now();
     encoder_forward_kernel3::launch(
         config,
         ctx,
@@ -43,6 +43,7 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
         channel as _,
     )
     .expect("Failed to run encoder_forward_kernel3");
+    println!("encoder_forward: {:?}", start.elapsed());
 }
 
 /*

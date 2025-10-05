@@ -246,11 +246,14 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let num_layers = self.config.num_layers;
         let start = std::time::Instant::now();
         for l in 0..num_layers {
-            let l_residual = acts.residual3.index_mut(
+            let mut l_residual = acts.residual3.index_mut(
                 if l == 0 { 0 } else { (l - 1) * bsize * seq * ch }..(l + 1) * bsize * seq * ch,
             );
-            let (mut res, mut l_residual3) =
-                if l == 0 { l_residual.split(0) } else { l_residual.split(bsize * seq * ch) };
+            let (mut res, mut l_residual3) = if l == 0 {
+                l_residual.split_at_mut(0)
+            } else {
+                l_residual.split_at_mut(bsize * seq * ch)
+            };
             /*
             float* l_ln1w = params.ln1w + l * C;
             float* l_ln1b = params.ln1b + l * C;

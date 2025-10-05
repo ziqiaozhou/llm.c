@@ -33,7 +33,6 @@ macro_rules! time_it {
     }};
 }
 
-
 #[derive(Parser, Debug)]
 struct Args {
     /// Name of the user
