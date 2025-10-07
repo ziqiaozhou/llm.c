@@ -63,6 +63,7 @@ struct Args {
 }
 
 fn main() {
+    env_logger::init();
     let args = Args::parse();
     println!("params: {args:?}");
     cuda_ctx(0, |ctx, m| {

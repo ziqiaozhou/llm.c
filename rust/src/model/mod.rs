@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::path::Path;
 
+use log::info;
+
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, PinnedHostBox, TensorViewMut};
 use memmap2::Mmap;
@@ -244,6 +246,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mut fch_gelu = acts.fch_gelu;
         let mut fcproj = acts.fcproj;
         let num_layers = self.config.num_layers;
+        
         let start = std::time::Instant::now();
         for l in 0..num_layers {
             let mut l_residual = acts.residual3.index_mut(
@@ -345,7 +348,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
             );
             matmul_forward(ctx, m, scratch, &l_ln1, &l_qkvw, &l_qkvb, bsize, seq, ch, 3 * ch);
-
             attention_forward(
                 ctx,
                 m,
@@ -409,8 +411,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
             );
             residual_forward(ctx, m, &mut l_residual3, &l_res2, &l_fcproj, bsize * seq * ch);
         }
-        println!("time for {} layers: {:?}", num_layers, start.elapsed());
-        let start = std::time::Instant::now();
         let residual = &mut acts
             .residual3
             .index_mut((num_layers - 1) * bsize * seq * ch..num_layers * bsize * seq * ch);
@@ -457,7 +457,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mean_loss = self.cpu_losses.as_ref().unwrap()[0..(bsize * seq)].iter().sum::<f32>()
             / (bsize * seq) as f32;
         self.mean_loss = mean_loss;
-        println!("time for final layer and loss: {:?}", start.elapsed());
+        info!("time for final layer and loss: {:?}", start.elapsed());
         println!("mean loss: {}", mean_loss);
     }
     pub fn zero_grad(&mut self) {

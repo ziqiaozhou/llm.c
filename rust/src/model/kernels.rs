@@ -3,6 +3,7 @@ use cudarc::cublas::sys as cublas_sys;
 use gpu::Float4;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, GpuModule, TensorView, TensorViewMut};
 use llm_rs_gpu::*;
+use log::*;
 
 struct GPUExecContext<'ctx, 'a, CN: GpuCtxSpace> {
     pub ctx: GpuCtxGuard<'ctx, 'a, CN>,
@@ -43,7 +44,7 @@ pub fn encoder_forward<'ctx, CN: GpuCtxSpace>(
         channel as _,
     )
     .expect("Failed to run encoder_forward_kernel3");
-    println!("encoder_forward: {:?}", start.elapsed());
+    trace!("encoder_forward: {:?}", start.elapsed());
 }
 
 /*
@@ -123,6 +124,7 @@ pub(crate) fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
     assert!(rstd.len() == n);
     assert!(weight.len() == channel);
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    //let start = std::time::Instant::now();
     layernorm_forward_kernel3::launch(
         config,
         ctx,
@@ -137,6 +139,7 @@ pub(crate) fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
         channel as _,
     )
     .expect("failed to launch layernorm_forward_kernel3");
+    //println!("layernorm_forward: {:?}", start.elapsed());
 }
 
 /*
@@ -222,6 +225,7 @@ pub(crate) fn matmul_forward<'ctx, CN: GpuCtxSpace>(
     let grid_x = (n).div_ceil(8 * SQRT_BLOCK_SIZE);
     let grid_y = (out_channel).div_ceil(8 * SQRT_BLOCK_SIZE);
     let config = gpu_host::gpu_config!(grid_x as u32, grid_y as u32, 1, @const SQRT_BLOCK_SIZE as u32, @const SQRT_BLOCK_SIZE as u32, 1, 0);
+    let start = std::time::Instant::now();
     matmul_forward_kernel4::launch(
         config,
         ctx,
@@ -234,6 +238,7 @@ pub(crate) fn matmul_forward<'ctx, CN: GpuCtxSpace>(
         out_channel as _,
     )
     .expect("failed to launch matmul_forward_kernel4");
+    trace!("matmul_forward: {:?}", start.elapsed());
 }
 
 /*
@@ -397,6 +402,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     channel: usize,
     num_heads: usize,
 ) {
+    let start = std::time::Instant::now();
     const BSIZE: usize = 256;
     let head_size = channel / num_heads;
     assert!(channel % num_heads == 0);
@@ -514,6 +520,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
         head_size as _,
     )
     .expect("failed to launch unpermute_kernel");
+    trace!("attention_forward: {:?}", start.elapsed());
 }
 
 /*
