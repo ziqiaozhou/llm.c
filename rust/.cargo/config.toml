@@ -1,5 +1,5 @@
 [build]
-rustc = "../../crates/target/debug/rustc-gpu"
+rustc = "../rs-gpu/crates/target/debug/rustc-gpu"
 rustflags = ["--emit=mir", "-Zmir-opt-level=3", "-Cllvm-args=-unroll-threshold=1000"]
 
 [env]

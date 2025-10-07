@@ -1,0 +1,3 @@
+[submodule "rs-gpu"]
+	path = rs-gpu
+	url = git@github.com:MSRSSP/rs-gpu.git
