@@ -220,6 +220,10 @@ pub(crate) fn matmul_forward<'ctx, CN: GpuCtxSpace>(
     channel: usize,
     out_channel: usize,
 ) {
+    let inp = unsafe { &*(inp as *const _ as *const TensorView<'_, [Float4]>) };
+    let out = unsafe { &mut *(out as *mut _ as *mut TensorViewMut<'_, [Float4]>) };
+    let weight = unsafe { &*(weight as *const _ as *const TensorView<'_, [Float4]>) };
+    let bias = unsafe { &*(bias as *const _ as *const TensorView<'_, [Float4]>) };
     let n = batch_size * seq_len;
     const SQRT_BLOCK_SIZE: usize = 16;
     let grid_x = (n).div_ceil(8 * SQRT_BLOCK_SIZE);
@@ -465,6 +469,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     let scale = 1.0f32 / (head_size as f32).sqrt();
     let grid_size = (batch_size * num_heads * seq_len * 32).div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
+    let preatt =  unsafe { &*(preatt as *const _ as *const TensorView<'_, [Float4]>) };
     softmax_forward_kernel5::launch(
         config,
         ctx,

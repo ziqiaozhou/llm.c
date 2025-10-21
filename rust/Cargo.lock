@@ -360,7 +360,6 @@ dependencies = [
  "crunchy",
  "gpu",
  "gpu_host",
- "gpu_macros",
 ]
 
 [[package]]
