@@ -1,6 +1,6 @@
 [build]
-rustc = "../rs-gpu/crates/target/debug/rustc-gpu"
-rustflags = ["--emit=mir", "-Zmir-opt-level=3", "-Cllvm-args=-unroll-threshold=1000"]
+rustc = "../seguru/crates/target/debug/rustc-gpu"
+rustflags = ["--emit=mir", "-Zmir-opt-level=3"]
 
 [env]
 USE_FAST="true"
