@@ -254,6 +254,7 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
         model.zero_grad();
         model.backward(cublas_handle);
         model.update(args.learning_rate, 0.9, 0.999, 1e-8, 0.0, (step + 1) as i32);
+        let _ = ctx.sync();
         let elapsed = start.elapsed();
         let tokens_per_second = (args.batch_size * args.seq_length) as f32 / elapsed.as_secs_f32();
         println!(
