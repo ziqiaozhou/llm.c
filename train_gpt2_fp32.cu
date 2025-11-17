@@ -475,6 +475,7 @@ __global__ void softmax_autoregressive_backward_kernel(float* dpreatt, const flo
             local_sum += att_bth[t2] * datt_bth[t2];
         }
 
+        block.sync();
         block_acc[warp.meta_group_rank()] = cg::reduce(warp, local_sum, cg::plus<float>{});
         block.sync();
         local_sum = cg::reduce(warp, block_acc[warp.thread_rank()], cg::plus<float>{});
