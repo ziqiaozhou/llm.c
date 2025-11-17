@@ -469,7 +469,7 @@ pub(crate) fn attention_forward<'ctx, CN: GpuCtxSpace>(
     let scale = 1.0f32 / (head_size as f32).sqrt();
     let grid_size = (batch_size * num_heads * seq_len * 32).div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
-    let preatt =  unsafe { &*(preatt as *const _ as *const TensorView<'_, [Float4]>) };
+    let preatt = unsafe { &*(preatt as *const _ as *const TensorView<'_, [Float4]>) };
     softmax_forward_kernel5::launch(
         config,
         ctx,

@@ -1,10 +1,9 @@
 use std::fs::File;
 use std::path::Path;
 
-use log::info;
-
 use cudarc::cublas::sys as cublas_sys;
 use gpu_host::{GpuCtxGuard, GpuCtxSpace, PinnedHostBox, TensorViewMut};
+use log::info;
 use memmap2::Mmap;
 
 pub(crate) mod dataloader;
@@ -246,7 +245,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
         let mut fch_gelu = acts.fch_gelu;
         let mut fcproj = acts.fcproj;
         let num_layers = self.config.num_layers;
-        
+
         let start = std::time::Instant::now();
         for l in 0..num_layers {
             let mut l_residual = acts.residual3.index_mut(
