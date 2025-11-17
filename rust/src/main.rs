@@ -243,13 +243,6 @@ fn llm_rs_run<'ctx, 'a, NS: GpuCtxSpace>(
 
         let start = std::time::Instant::now();
         let (input, target) = train_loader.next_batch();
-        /*
-        gpt2_forward(&model, train_loader.inputs, train_loader.targets, B, T);
-        gpt2_zero_grad(&model);
-        gpt2_backward(&model);
-        gpt2_update(&model, learning_rate, 0.9f, 0.999f, 1e-8f, 0.0f, step+1);
-        cudaCheck(cudaDeviceSynchronize()); // finish all CUDA work to get
-         */
         model.forward(cublas_handle, &input, &target, args.batch_size, args.seq_length);
         model.zero_grad();
         model.backward(cublas_handle);

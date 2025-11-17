@@ -704,15 +704,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 ch,
                 4 * ch,
             );
-            /* correct until here.
-            println!("dl_btc\n{}", dl_btc);
-            println!("dl_fcw\n{}", dl_fcw);
-            println!("dl_fcb\n{}", dl_fcb);
-            println!("dl_bt4c\n{}", dl_bt4c);
-            println!("ln2\n{}", ln2);
-            println!("fcw\n{}", fcw);
-            panic!();
-            */
             //layernorm_backward(dresidual, dl_ln2w, dl_ln2b, dl_btc, l_residual2, l_ln2w, l_ln2_mean, l_ln2_rstd, B, T, C);
             layernorm_backward(
                 ctx,
@@ -729,15 +720,6 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 seq,
                 ch,
             );
-            /*println!("dresidual\n{}", dresidual);
-            println!("dl_ln2w\n{}", dl_ln2w);
-            println!("dl_ln2b\n{}", dl_ln2b);
-            println!("dl_btc\n{}", dl_btc);
-            println!("residual2\n{}", residual2);
-            println!("ln2w\n{}", ln2w);
-            println!("ln2_mean\n{}", ln2_mean);
-            println!("ln2_rstd\n{}", ln2_rstd);
-            panic!();*/
             // matmul_backward(dl_btc, dl_attprojw, dl_attprojb, dresidual, l_atty, l_attprojw, B, T, C, C);
             matmul_backward(
                 ctx,
