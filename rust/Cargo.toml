@@ -1,9 +1,9 @@
-[package]
-name = "llm"
-version = "0.1.0"
-edition = "2024"
+[workspace]
+members = [
+    "llmrs",
+]
 
-[dependencies]
+[workspace.dependencies]
 memmap2 = {version = "0.9.8"}
 cudarc = {version = "0.17", features = ["cuda-12090"]}
 clap = { version = "4.2", features = ["derive"] }

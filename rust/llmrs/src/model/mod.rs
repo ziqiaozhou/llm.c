@@ -799,7 +799,7 @@ impl<'ctx, 'g, NS: GpuCtxSpace> GPT2<'ctx, 'g, NS> {
                 &mut dl_ln1w,
                 &mut dl_ln1b,
                 dl_btc,
-                &residual,
+                residual,
                 &ln1w,
                 &ln1_mean,
                 &ln1_rstd,

@@ -736,6 +736,13 @@ void matmul_forward(float* out,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void matmul_forward_host(float* out,
+                                  const float* inp, const float* weight, const float* bias,
+                                  int B, int T, int C, int OC) {
+    matmul_forward(out, inp, weight, bias, B, T, C, OC);
+    cudaCheck(cudaDeviceSynchronize());
+}
+
 void attention_forward(float* out, float* qkvr, float* att,
                        float* inp,
                        int B, int T, int C, int NH) {
@@ -790,14 +797,14 @@ void residual_forward(float* out, float* inp1, float* inp2, int N) {
     cudaCheck(cudaGetLastError());
 }
 
-void gelu_forward(float* out, const float* inp, int N) {
+extern "C" void gelu_forward(float* out, const float* inp, int N) {
     const int block_size = 128;
     const int grid_size = CEIL_DIV(N, block_size);
     gelu_forward_kernel<<<grid_size, block_size>>>(out, inp, N);
     cudaCheck(cudaGetLastError());
 }
 
-void gelu_backward(float* dinp, const float* inp, const float* dout, const int N) {
+extern "C" void gelu_backward(float* dinp, const float* inp, const float* dout, const int N) {
     const int block_size = 128;
     const int grid_size = CEIL_DIV(N, block_size);
     gelu_backward_kernel<<<grid_size, block_size>>>(dinp, inp, dout, N);
@@ -820,6 +827,14 @@ void matmul_backward(float* dinp, float* dweight, float* dbias,
         matmul_backward_bias_kernel4<<<grid_size, block_size, block_size * sizeof(float)>>>(dbias, dout, B, T, OC);
         cudaCheck(cudaGetLastError());
     }
+}
+
+extern "C" void matmul_backward_bias_kernel4_host(float* dbias, const float* dout, int B, int T, int OC) {
+    const int block_size = 1024;
+    const int grid_size = OC / 32;
+    matmul_backward_bias_kernel4<<<grid_size, block_size, block_size * sizeof(float)>>>(dbias, dout, B, T, OC);
+    cudaCheck(cudaGetLastError());
+    cudaCheck(cudaDeviceSynchronize());
 }
 
 void layernorm_backward(float* dinp, float* dweight, float* dbias,
@@ -1560,6 +1575,7 @@ void error_usage() {
 
 // ----------------------------------------------------------------------------
 // main training loop
+#ifndef LIBRARY_ONLY
 int main(int argc, char *argv[]) {
 
     // read in the (optional) command line arguments
@@ -1753,4 +1769,5 @@ int main(int argc, char *argv[]) {
 
     return 0;
 }
+#endif
 #endif

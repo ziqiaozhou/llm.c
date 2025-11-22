@@ -19,7 +19,7 @@ use model::dataloader::DataLoader;
 
 macro_rules! top_path {
     ($p: literal) => {
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../", $p)
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../../", $p)
     };
 }
 

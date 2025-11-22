@@ -208,7 +208,7 @@ void matmul_forward(float* out,
     cudaCheck(cudaGetLastError());
 }*/
 
-pub(crate) fn matmul_forward<'ctx, CN: GpuCtxSpace>(
+pub fn matmul_forward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
     out: &mut TensorViewMut<'_, [f32]>,
@@ -264,6 +264,68 @@ void matmul_backward(float* dinp, float* dweight, float* dbias,
     }
 }
 */
+
+pub fn matmul_forward_kernel4<'ctx, CN: GpuCtxSpace>(
+    ctx: &GpuCtxGuard<'ctx, '_, CN>,
+    m: &GpuModule<CN>,
+    out: &mut TensorViewMut<'_, [f32]>,
+    inp: &TensorView<'_, [f32]>,
+    weight: &TensorView<'_, [f32]>,
+    bias: &TensorView<'_, [f32]>,
+    batch_size: usize,
+    seq_len: usize,
+    channel: usize,
+    out_channel: usize,
+) {
+    let inp = unsafe { &*(inp as *const _ as *const TensorView<'_, [Float4]>) };
+    let out = unsafe { &mut *(out as *mut _ as *mut TensorViewMut<'_, [Float4]>) };
+    let weight = unsafe { &*(weight as *const _ as *const TensorView<'_, [Float4]>) };
+    let bias = unsafe { &*(bias as *const _ as *const TensorView<'_, [Float4]>) };
+    let n = batch_size * seq_len;
+    const SQRT_BLOCK_SIZE: usize = 16;
+    let grid_x = (n).div_ceil(8 * SQRT_BLOCK_SIZE);
+    let grid_y = (out_channel).div_ceil(8 * SQRT_BLOCK_SIZE);
+    let config = gpu_host::gpu_config!(grid_x as u32, grid_y as u32, 1, @const SQRT_BLOCK_SIZE as u32, @const SQRT_BLOCK_SIZE as u32, 1, 0);
+    matmul_forward_kernel4::launch(
+        config,
+        ctx,
+        m,
+        out,
+        inp,
+        weight,
+        bias,
+        channel as _,
+        out_channel as _,
+    )
+    .expect("failed to launch matmul_forward_kernel4");
+}
+
+pub fn matmul_backward_bias_kernel4<'ctx, CN: GpuCtxSpace>(
+    ctx: &GpuCtxGuard<'ctx, '_, CN>,
+    m: &GpuModule<CN>,
+    dbias: &mut TensorViewMut<'_, [f32]>,
+    dout: &TensorView<'_, [f32]>,
+    batch_size: usize,
+    seq_len: usize,
+    out_channel: usize,
+) {
+    const BSIZE: usize = 1024;
+    const SMEM_SIZE: usize = BSIZE * std::mem::size_of::<f32>();
+    let grid_size = out_channel.div_ceil(32);
+    let config =
+        gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, SMEM_SIZE as u32);
+    matmul_backward_bias_kernel4::launch(
+        config,
+        ctx,
+        m,
+        dbias,
+        dout,
+        batch_size as _,
+        seq_len as _,
+        out_channel as _,
+    )
+    .expect("failed to launch matmul_backward_bias_kernel4");
+}
 
 pub(crate) fn matmul_backward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
