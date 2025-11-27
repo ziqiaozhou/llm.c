@@ -8,6 +8,10 @@ edition = "2024"
 name = "matmul"
 harness = false
 
+[[bench]]
+name = "softmax"
+harness = false
+
 [dependencies]
 llmc = {path = "../llmc"}
 llmrs = {path = "../llmrs"}
