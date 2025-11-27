@@ -7,13 +7,13 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use gpu::prelude::*;
 use gpu_host::{GpuCtxGuard, GpuModule, TensorViewMut, cuda_ctx};
 
-struct MulMulBack<'a> {
+struct MatMulBack<'a> {
     bias: gpu_host::TensorViewMut<'a, [f32]>,
     dout: gpu_host::TensorViewMut<'a, [f32]>,
     config: Config,
 }
 
-impl<'a> KernelRunner<'a> for MulMulBack<'a> {
+impl<'a> KernelRunner<'a> for MatMulBack<'a> {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
@@ -35,7 +35,7 @@ impl<'a> KernelRunner<'a> for MulMulBack<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::matmul_backward_bias_kernel4(
+        llmrs::kernels::matmul_backward_bias_kernel4(
             ctx,
             m,
             &mut self.bias,
@@ -99,7 +99,7 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::matmul_forward(
+        llmrs::kernels::matmul_forward(
             ctx,
             m,
             &mut self.out,
@@ -131,7 +131,8 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
 
 fn matmul_bench(c: &mut Criterion) {
     gpu_host::cuda_ctx(0, |ctx, m| {
-        bench_llm_rs::<_, MatMulForward>(c, "matmul", ctx, m);
+        bench_llm_rs::<_, MatMulForward>(c, "matmul_forward", ctx, m);
+        bench_llm_rs::<_, MatMulBack>(c, "matmul_back", ctx, m);
     });
 }
 

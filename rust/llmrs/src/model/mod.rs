@@ -9,7 +9,7 @@ use memmap2::Mmap;
 pub(crate) mod dataloader;
 
 #[macro_use]
-pub(crate) mod kernels;
+pub mod kernels;
 pub(crate) mod params;
 
 use dataloader::parse_header_data;
