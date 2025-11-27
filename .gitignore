@@ -34,3 +34,7 @@ dev/cuda/global_norm
 
 # log files
 *.log
+
+*.a
+rust/target/*
+*.csv
