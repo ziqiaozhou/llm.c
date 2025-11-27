@@ -942,23 +942,24 @@ pub(crate) fn fused_classifier3<'ctx, CN: GpuCtxSpace>(
 pub fn softmax_forward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
-    out: &mut TensorViewMut<'_, [f32]>,
-    inp: &TensorView<'_, [f32]>,
+    dpreatt: &mut TensorViewMut<'_, [f32]>,
+    att: &TensorView<'_, [Float4]>,
     batch_size: usize,
     seq_len: usize,
+    num_heads: usize,
+    scale: f32,
 ) {
     const BSIZE: usize = 256;
-    let grid_size = (batch_size * seq_len * 32).div_ceil(BSIZE);
+    let grid_size = (batch_size * num_heads * seq_len * 32).div_ceil(BSIZE);
     let config = gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE as u32, 1, 1, 0);
-    let inp = unsafe { &*(inp as *const _ as *const TensorView<'_, [Float4]>) };
     softmax_forward_kernel5::launch(
         config,
         ctx,
         m,
-        out,
-        1.0f32,
-        inp,
-        batch_size as _,
+        dpreatt,
+        scale,
+        att,
+        (batch_size * num_heads) as _,
         seq_len as _,
     )
     .expect("failed to launch softmax_forward_kernel5");
@@ -975,15 +976,7 @@ pub fn softmax_autoregressive_backward_kernel<'ctx, CN: GpuCtxSpace>(
     channel: usize,
     scale: f32,
 ) {
-    let config = gpu_host::gpu_config!(
-        (seq_len / 4) as u32,
-        (batch_size) as u32,
-        1,
-        256,
-        1,
-        1,
-        0
-    );
+    let config = gpu_host::gpu_config!((seq_len / 4) as u32, (batch_size) as u32, 1, 256, 1, 1, 0);
     softmax_autoregressive_backward_kernel::launch(
         config,
         ctx,

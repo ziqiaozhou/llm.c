@@ -790,6 +790,23 @@ void attention_forward(float* out, float* qkvr, float* att,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void softmax_forward_host(float* out, const float* inp, int B, int T, int NH, float scale) {
+    const int block_size = 256;
+    const int grid_size = CEIL_DIV(B * NH * T * 32, block_size);
+    softmax_forward_kernel5<<<grid_size, block_size>>>(out, scale, inp, B * NH, T);
+    cudaCheck(cudaGetLastError());
+    cudaCheck(cudaDeviceSynchronize());
+}
+
+extern "C" void softmax_autoregressive_backward_host(float* dpreatt, const float* datt, const float* att,
+                                            int B, int T, int C, float scale) {
+    const int block_size = 256;
+    dim3 gridDim(CEIL_DIV(T, 4), B);
+    softmax_autoregressive_backward_kernel<<<gridDim, block_size>>>(dpreatt, datt, att, B, T, C, scale);
+    cudaCheck(cudaGetLastError());
+    cudaCheck(cudaDeviceSynchronize());
+}
+
 void residual_forward(float* out, float* inp1, float* inp2, int N) {
     const int block_size = 256;
     const int grid_size = CEIL_DIV(N, block_size);

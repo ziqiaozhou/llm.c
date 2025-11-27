@@ -88,9 +88,9 @@ fn test_softmax_autoregressive_backward_kernel(B: u32, T: u32, C: u32, NH: u32) 
 */
 struct SoftMaxForward<'a> {
     config: Config,
-    inp: gpu_host::TensorViewMut<'a, [f32]>,
-    out: gpu_host::TensorViewMut<'a, [f32]>,
-    
+    att: gpu_host::TensorViewMut<'a, [Float4]>,
+    preatt: gpu_host::TensorViewMut<'a, [f32]>,
+    scale: f32,
 }
 
 impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
@@ -98,15 +98,17 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
         config: Config,
-    ) -> Self {
-        let len = (config.batch_size * config.seq_len * config.channel) as usize;
-        let inp = ctx
-            .new_tensor_view(rand_f32_vec(len).as_slice())
-            .expect("tensor alloc failed");
-        let out = ctx
-            .new_tensor_view(vec![0f32; len].as_slice())
-            .expect("tensor alloc failed");
-        Self { config, inp, out }
+    ) -> Option<Self> {
+        let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;
+        if len > u32::MAX as usize {
+            return None;
+        }
+        let att =
+            ctx.new_tensor_view(rand_float4_vec(len / 4).as_slice()).expect("tensor alloc failed");
+        let preatt =
+            ctx.new_tensor_view(rand_f32_vec(len).as_slice()).expect("tensor alloc failed");
+        let scale = 1.0f32 / (config.head_size as f32).sqrt();
+        Some(Self { config, att, preatt, scale })
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
@@ -117,31 +119,36 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
         llmrs::kernels::softmax_forward(
             ctx,
             m,
-            &mut self.out,
-            &self.inp,
+            &mut self.preatt,
+            &self.att,
             self.config.batch_size,
             self.config.seq_len,
-            self.config.channel,
+            self.config.num_heads,
+            self.scale,
         );
     }
 
     fn c_fn(&mut self) {
         unsafe {
             llmc::softmax_forward_host(
-                self.out.as_devptr() as _,
-                self.inp.as_devptr() as _,
+                self.preatt.as_devptr() as _,
+                self.att.as_devptr() as _,
                 self.config.batch_size as _,
                 self.config.seq_len as _,
-                self.config.channel as _,
+                self.config.num_heads as _,
+                self.scale,
             );
         }
     }
 }
 
+// softmax_autoregressive_backward_kernel
 struct SoftMaxBack<'a> {
     config: Config,
-    inp: gpu_host::TensorViewMut<'a, [f32]>,
-    out: gpu_host::TensorViewMut<'a, [f32]>,
+    dpreatt: gpu_host::TensorViewMut<'a, [f32]>,
+    datt: gpu_host::TensorViewMut<'a, [f32]>,
+    att: gpu_host::TensorViewMut<'a, [f32]>,
+    scale: f32,
 }
 
 impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
@@ -149,15 +156,17 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
         config: Config,
-    ) -> Self {
-        let len = (config.batch_size * config.seq_len * config.channel) as usize;
-        let inp = ctx
-            .new_tensor_view(rand_f32_vec(len).as_slice())
-            .expect("tensor alloc failed");
-        let out = ctx
-            .new_tensor_view(vec![0f32; len].as_slice())
-            .expect("tensor alloc failed");
-        Self { config, inp, out }
+    ) -> Option<Self> {
+        let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;
+        if len > u32::MAX as usize {
+            return None;
+        }
+        let dpreatt =
+            ctx.new_tensor_view(rand_f32_vec(len).as_slice()).expect("tensor alloc failed");
+        let datt = ctx.new_tensor_view(vec![0f32; len].as_slice()).expect("tensor alloc failed");
+        let att = ctx.new_tensor_view(rand_f32_vec(len).as_slice()).expect("tensor alloc failed");
+        let scale = 1.0f32 / (config.head_size as f32).sqrt();
+        Some(Self { config, dpreatt, datt, att, scale })
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
@@ -165,25 +174,29 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::softmax_backward(
+        llmrs::kernels::softmax_autoregressive_backward_kernel(
             ctx,
             m,
-            &mut self.out,
-            &self.inp,
+            &mut self.dpreatt,
+            &self.datt,
+            &self.att,
             self.config.batch_size,
             self.config.seq_len,
             self.config.channel,
+            self.scale,
         );
     }
 
     fn c_fn(&mut self) {
         unsafe {
-            llmc::softmax_backward_host(
-                self.out.as_devptr() as _,
-                self.inp.as_devptr() as _,
+            llmc::softmax_autoregressive_backward_host(
+                self.dpreatt.as_devptr() as _,
+                self.datt.as_devptr() as _,
+                self.att.as_devptr() as _,
                 self.config.batch_size as _,
                 self.config.seq_len as _,
                 self.config.channel as _,
+                self.scale,
             );
         }
     }
