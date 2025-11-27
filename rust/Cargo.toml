@@ -9,9 +9,9 @@ members = [
 memmap2 = {version = "0.9.8"}
 cudarc = {version = "0.17", features = ["cuda-12090"]}
 clap = { version = "4.2", features = ["derive"] }
-gpu_host = {path = "../seguru/crates/gpu-host"}
-gpu = {path = "../seguru/crates/gpu"}
-llm-rs-gpu = {path = "../seguru/examples/llm-rs-gpu"}
+gpu_host = {path = "../../seguru/crates/gpu-host"}
+gpu = {path = "../../seguru/crates/gpu"}
+llm-rs-gpu = {path = "../../seguru/examples/llm-rs-gpu"}
 rand = "0.9"
 log = "0.4"
 env_logger = "0.10"

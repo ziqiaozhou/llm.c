@@ -83,6 +83,8 @@ dependencies = [
  "llmc",
  "llmrs",
  "rand",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
