@@ -18,7 +18,7 @@ impl<'a> KernelRunner<'a> for MatMulBack<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
         config: Config,
-    ) -> Self {
+    ) -> Option<Self> {
         let bias = ctx
             .new_tensor_view(rand_f32_vec(config.out_channel).as_slice())
             .expect("tensor alloc failed");
@@ -27,7 +27,7 @@ impl<'a> KernelRunner<'a> for MatMulBack<'a> {
                 rand_f32_vec(config.batch_size * config.seq_len * config.out_channel).as_slice(),
             )
             .expect("tensor alloc failed");
-        Self { bias, dout, config }
+        Some(Self { bias, dout, config })
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
@@ -72,7 +72,7 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
         config: Config,
-    ) -> Self {
+    ) -> Option<Self> {
         let channel = config.out_channel / 4;
         let bias = ctx
             .new_tensor_view(rand_f32_vec(channel as usize).as_slice())
@@ -91,7 +91,7 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
         let weight = ctx
             .new_tensor_view(rand_f32_vec((channel * channel) as usize).as_slice())
             .expect("tensor alloc failed");
-        Self { bias, out, inp, weight, config }
+        Some(Self { bias, out, inp, weight, config })
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(

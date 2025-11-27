@@ -32,12 +32,12 @@ pub fn rand_i32_vec(n: usize) -> Vec<i32> {
     (0..n).map(|_| rng.random::<i32>()).collect()
 }
 
-pub trait KernelRunner<'a> {
+pub trait KernelRunner<'a>: Sized {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         m: &'a gpu_host::GpuModule<N>,
         config: Config,
-    ) -> Self;
+    ) -> Option<Self>;
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
         &mut self,
@@ -56,6 +56,7 @@ pub struct Config {
     pub vocab_size: usize,
     pub padded_vocab_size: usize,
     pub head_size: usize,
+    pub num_heads: usize,
 }
 
 impl Config {
@@ -95,9 +96,12 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                     head_size,
                     channel,
                     out_channel,
+                    num_heads,
                 };
                 let config_str = config.to_str();
-                let mut mybench = B::new(ctx, m, config);
+                let Some(mut mybench) = B::new(ctx, m, config) else {
+                    continue;
+                };
                 group.bench_function(format!("rs_{}", config_str).as_str(), |b| {
                     b.iter(|| {
                         mybench.rs_fn(ctx, m);
