@@ -30,6 +30,12 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
         Some(Self { config, att, preatt, scale })
     }
 
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        const BSIZE: u32 = 256;
+        let grid_size = (self.config.batch_size * self.config.num_heads * self.config.seq_len * 32).div_ceil(BSIZE as usize) as u32;
+        gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE, 1, 1, 0)
+    }
+
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
         &mut self,
         ctx: &gpu_host::GpuCtxGuard<N>,
@@ -85,6 +91,10 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
         let att = ctx.new_tensor_view(rand_f32_vec(len).as_slice()).expect("tensor alloc failed");
         let scale = 1.0f32 / (config.head_size as f32).sqrt();
         Some(Self { config, dpreatt, datt, att, scale })
+    }
+
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        gpu_host::gpu_config!((self.config.seq_len / 4) as u32, (self.config.batch_size) as u32, 1, 256, 1, 1, 0)
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(

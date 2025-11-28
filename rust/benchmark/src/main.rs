@@ -51,14 +51,14 @@ fn main() {
                     // Convert nanoseconds
                     let mean_ms = json.mean.point_estimate;
                     let config_parts: Vec<&str> = config.split("_").collect();
-                    assert!(config_parts.len() >= 3);
-                    let (t, o) = (config_parts[1], config_parts[2]);
+                    assert!(config_parts.len() >= 4);
+                    let (t, o, v) = (config_parts[1], config_parts[2], config_parts[3]);
                     let rs_or_c = if config_parts[0] == "rs" { 1 } else { 0 };
-                    let t_o = format!("{}_{}", t, o);
-                    if !sub_results.contains_key(&t_o) {
-                        sub_results.insert(t_o.clone(), [0.0, 0.0]);
+                    let t_o_v = format!("{}_{}_{}", t, o, v);
+                    if !sub_results.contains_key(&t_o_v) {
+                        sub_results.insert(t_o_v.clone(), [0.0, 0.0]);
                     }
-                    sub_results.get_mut(&t_o).unwrap()[rs_or_c] = mean_ms;
+                    sub_results.get_mut(&t_o_v).unwrap()[rs_or_c] = mean_ms;
                 }
             }
             results.insert(bench_name.clone(), sub_results);
@@ -72,7 +72,7 @@ fn main() {
         "{:<25} {:<12} {:<14} {:<14} {:<14} {:<14} {:<14} {:<14}",
         "Benchmark", "T_O", "rs", "c", "rs/c", "diff", "rs-norm", "rs-norm/c-norm"
     );
-    let empty_time_diff = results["empty"]["1024_128"][1] - results["empty"]["1024_128"][0];
+    let empty_time_diff = results["empty"]["1024_32_1024"][1] - results["empty"]["1024_32_1024"][0];
     for (bench_name, sub_results) in &results {
         for (t_o, times) in sub_results {
             let rs_time = times[1];

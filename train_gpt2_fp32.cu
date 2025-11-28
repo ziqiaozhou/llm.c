@@ -71,6 +71,17 @@ __device__ inline float4 add_float4(const float4& a, const float4& b) {
     return make_float4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w);
 }
 
+__global__ void empty_kernel() {
+    if (threadIdx.x >= 1) {
+        return;
+    }
+    __syncthreads();
+}
+
+extern "C" void empty_host(int B, int T, int C) {
+    int grid = CEIL_DIV(B*T*C, 256);
+    empty_kernel<<<grid, 256>>>();
+}
 // use of float4 leads to using 128-bit LDG / STG instructions in SASS,
 // very helpful in memory-bound kernels like encoder_forward
 __global__ void encoder_forward_kernel3(float4* out,

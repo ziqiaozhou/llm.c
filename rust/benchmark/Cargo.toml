@@ -16,6 +16,11 @@ harness = false
 name = "layernorm"
 harness = false
 
+
+[[bench]]
+name = "empty"
+harness = false
+
 [dependencies]
 llmc = {path = "../llmc"}
 llmrs = {path = "../llmrs"}

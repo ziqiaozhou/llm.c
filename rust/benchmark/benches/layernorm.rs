@@ -41,6 +41,12 @@ impl<'a> KernelRunner<'a> for LayerNormForward<'a> {
         Some(Self { config, out, mean, rstd, inp, weight, bias })
     }
 
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        const BDIM: u32 = 512;
+        let grid = (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
+        gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
+    }
+
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
         &mut self,
         ctx: &gpu_host::GpuCtxGuard<N>,
@@ -118,6 +124,12 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
             .new_tensor_view(vec![0f32; config.batch_size * config.seq_len].as_slice())
             .expect("tensor alloc failed");
         Some(Self { config, dinp, dweight, dbias, dout, inp, weight, mean, rstd })
+    }
+
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        const BDIM: u32 = 512;
+        let grid = (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
+        gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(

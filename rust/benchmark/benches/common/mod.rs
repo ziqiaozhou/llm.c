@@ -36,6 +36,8 @@ pub trait KernelRunner<'a>: Sized {
         config: Config,
     ) -> Option<Self>;
 
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig;
+
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
         &mut self,
         ctx: &gpu_host::GpuCtxGuard<N>,
@@ -100,7 +102,15 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                 let Some(mut mybench) = B::new(ctx, config) else {
                     continue;
                 };
-                group.bench_function(format!("rs_{}", config_str).as_str(), |b| {
+                use gpu_host::SafeGpuConfig;
+                let launch_config = mybench.launch_config();
+                let gdim_x = launch_config.grid_dim_x();
+                let bdim_x = launch_config.block_dim_x();
+                let gdim_y = launch_config.grid_dim_y();
+                let bdim_y = launch_config.block_dim_y();
+                let smem = launch_config.shared_size();
+
+                group.bench_function(format!("rs_{}_{}_{}_{}_{}_{}", config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem).as_str(), |b| {
                     b.iter(|| {
                         mybench.rs_fn(ctx, m);
                         let _ = ctx.sync();

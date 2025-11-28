@@ -27,6 +27,15 @@ impl<'a> KernelRunner<'a> for MatMulBack<'a> {
         Some(Self { bias, dout, config })
     }
 
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        const SQRT_BLOCK_SIZE: u32 = 16;
+        let n = self.config.batch_size * self.config.seq_len;
+        let out_channel = self.config.out_channel;
+        let grid_x = (n as u32).div_ceil(8 * SQRT_BLOCK_SIZE);
+        let grid_y = (out_channel as u32).div_ceil(8 * SQRT_BLOCK_SIZE);
+        gpu_host::gpu_config!(grid_x as u32, grid_y as u32, 1, @const SQRT_BLOCK_SIZE, @const SQRT_BLOCK_SIZE, 1, 0)
+    }
+
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
         &mut self,
         ctx: &gpu_host::GpuCtxGuard<N>,
@@ -88,6 +97,15 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
             .new_tensor_view(rand_f32_vec(channel * channel).as_slice())
             .expect("tensor alloc failed");
         Some(Self { bias, out, inp, weight, config })
+    }
+
+    fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
+        const SQRT_BLOCK_SIZE: u32 = 16;
+        let n = self.config.batch_size * self.config.seq_len;
+        let out_channel = self.config.out_channel;
+        let grid_x = (n as u32).div_ceil(8 * SQRT_BLOCK_SIZE);
+        let grid_y = (out_channel as u32).div_ceil(8 * SQRT_BLOCK_SIZE);
+        gpu_host::gpu_config!(grid_x as u32, grid_y as u32, 1, @const SQRT_BLOCK_SIZE, @const SQRT_BLOCK_SIZE, 1, 0)
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
