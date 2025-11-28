@@ -18,7 +18,7 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         config: Config,
     ) -> Option<Self> {
-        let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;
+        let len = config.batch_size * config.num_heads * config.seq_len * config.seq_len;
         if len > u32::MAX as usize {
             return None;
         }
@@ -75,7 +75,7 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         config: Config,
     ) -> Option<Self> {
-        let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;
+        let len = config.batch_size * config.num_heads * config.seq_len * config.seq_len;
         if len > u32::MAX as usize {
             return None;
         }
