@@ -79,19 +79,15 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
         config: Config,
     ) -> Option<Self> {
         let channel = config.out_channel / 4;
-        let bias = ctx
-            .new_tensor_view(rand_f32_vec(channel).as_slice())
-            .expect("tensor alloc failed");
+        let bias =
+            ctx.new_tensor_view(rand_f32_vec(channel).as_slice()).expect("tensor alloc failed");
         let out = ctx
             .new_tensor_view(
-                rand_f32_vec(config.batch_size * config.seq_len * config.out_channel)
-                    .as_slice(),
+                rand_f32_vec(config.batch_size * config.seq_len * config.out_channel).as_slice(),
             )
             .expect("tensor alloc failed");
         let inp = ctx
-            .new_tensor_view(
-                rand_f32_vec(config.batch_size * config.seq_len * channel).as_slice(),
-            )
+            .new_tensor_view(rand_f32_vec(config.batch_size * config.seq_len * channel).as_slice())
             .expect("tensor alloc failed");
         let weight = ctx
             .new_tensor_view(rand_f32_vec(channel * channel).as_slice())

@@ -22,14 +22,14 @@ impl<'a> KernelRunner<'a> for Empty {
         _ctx: &'a gpu_host::GpuCtxGuard<N>,
         config: Config,
     ) -> Option<Self> {
-       
         Some(Self { config })
     }
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
         const BDIM: u32 = 256;
         let config = &self.config;
-        let grid = (config.batch_size * config.seq_len * config.channel).div_ceil(BDIM as usize) as u32;
+        let grid =
+            (config.batch_size * config.seq_len * config.channel).div_ceil(BDIM as usize) as u32;
         gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
     }
 
@@ -39,16 +39,16 @@ impl<'a> KernelRunner<'a> for Empty {
         m: &gpu_host::GpuModule<N>,
     ) {
         let launch_config = self.launch_config();
-        empty::launch(
-            launch_config,
-            ctx,
-            m,
-        ).expect("kernel launch failed");
+        empty::launch(launch_config, ctx, m).expect("kernel launch failed");
     }
 
     fn c_fn(&mut self) {
         unsafe {
-            llmc::empty_host(self.config.batch_size as _, self.config.seq_len as _, self.config.channel as _);
+            llmc::empty_host(
+                self.config.batch_size as _,
+                self.config.seq_len as _,
+                self.config.channel as _,
+            );
         }
     }
 }

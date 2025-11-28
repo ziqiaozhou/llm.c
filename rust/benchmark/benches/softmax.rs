@@ -32,7 +32,8 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
         const BSIZE: u32 = 256;
-        let grid_size = (self.config.batch_size * self.config.num_heads * self.config.seq_len * 32).div_ceil(BSIZE as usize) as u32;
+        let grid_size = (self.config.batch_size * self.config.num_heads * self.config.seq_len * 32)
+            .div_ceil(BSIZE as usize) as u32;
         gpu_host::gpu_config!(grid_size as u32, 1, 1, @const BSIZE, 1, 1, 0)
     }
 
@@ -94,7 +95,15 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
     }
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
-        gpu_host::gpu_config!((self.config.seq_len / 4) as u32, (self.config.batch_size) as u32, 1, 256, 1, 1, 0)
+        gpu_host::gpu_config!(
+            (self.config.seq_len / 4) as u32,
+            (self.config.batch_size) as u32,
+            1,
+            256,
+            1,
+            1,
+            0
+        )
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(

@@ -937,6 +937,12 @@ void fused_classifier3(float* logits, float* losses,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void fused_classifier_host(float* logits, float* losses,
+                              const float* dlosses, const int* targets,
+                              int B, int T, int V, int P) {
+    fused_classifier3(logits, losses, dlosses, targets, B, T, V, P);
+}
+
 // ----------------------------------------------------------------------------
 // GPT-2 model definition
 

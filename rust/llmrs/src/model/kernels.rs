@@ -906,7 +906,7 @@ void fused_classifier3(float* logits, float* losses,
 }
 */
 
-pub(crate) fn fused_classifier3<'ctx, CN: GpuCtxSpace>(
+pub fn fused_classifier3<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
     logits: &mut TensorViewMut<'_, [f32]>,

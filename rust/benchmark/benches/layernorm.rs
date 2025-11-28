@@ -43,7 +43,8 @@ impl<'a> KernelRunner<'a> for LayerNormForward<'a> {
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
         const BDIM: u32 = 512;
-        let grid = (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
+        let grid =
+            (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
         gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
     }
 
@@ -128,7 +129,8 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
         const BDIM: u32 = 512;
-        let grid = (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
+        let grid =
+            (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
         gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
     }
 

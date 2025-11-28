@@ -16,6 +16,9 @@ harness = false
 name = "layernorm"
 harness = false
 
+[[bench]]
+name = "fused"
+harness = false
 
 [[bench]]
 name = "empty"

@@ -110,12 +110,19 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                 let bdim_y = launch_config.block_dim_y();
                 let smem = launch_config.shared_size();
 
-                group.bench_function(format!("rs_{}_{}_{}_{}_{}_{}", config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem).as_str(), |b| {
-                    b.iter(|| {
-                        mybench.rs_fn(ctx, m);
-                        let _ = ctx.sync();
-                    })
-                });
+                group.bench_function(
+                    format!(
+                        "rs_{}_{}_{}_{}_{}_{}",
+                        config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem
+                    )
+                    .as_str(),
+                    |b| {
+                        b.iter(|| {
+                            mybench.rs_fn(ctx, m);
+                            let _ = ctx.sync();
+                        })
+                    },
+                );
                 group.bench_function(format!("c_{}", config_str).as_str(), |b| {
                     b.iter(|| {
                         mybench.c_fn();
@@ -126,4 +133,23 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
         }
     }
     group.finish();
+}
+
+#[macro_export]
+macro_rules! gen_bench {
+    ($bench_type:ty, $name:expr) => {
+        fn bench_function(c: &mut Criterion) {
+            gpu_host::cuda_ctx(0, |ctx, m| {
+                bench_llm_rs::<_, $bench_type>(c, $name, ctx, m);
+            });
+        }
+
+        criterion_group! {
+          name = bench;
+          config = Criterion::default().warm_up_time(Duration::from_secs(3));
+          targets = bench_function
+        }
+
+        criterion_main!(bench);
+    };
 }
