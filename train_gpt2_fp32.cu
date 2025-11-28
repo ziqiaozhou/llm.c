@@ -722,6 +722,12 @@ void layernorm_forward(float* out, float* mean, float* rstd,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void layernorm_forward_host(float* out, float* mean, float* rstd,
+                                     float* inp, float* weight, float* bias,
+                                     int B, int T, int C) {
+    layernorm_forward(out, mean, rstd, inp, weight, bias, B, T, C);
+}
+
 // kernel 1 is the most naive matmul kernel
 void matmul_forward(float* out,
                     const float* inp, const float* weight, const float* bias,
@@ -859,6 +865,12 @@ void layernorm_backward(float* dinp, float* dweight, float* dbias,
     size_t shared_mem_size = 2 * C * sizeof(float);
     layernorm_backward_kernel2<<<grid_size, block_size, shared_mem_size>>>(dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C);
     cudaCheck(cudaGetLastError());
+}
+
+extern "C" void layernorm_backward_host(float* dinp, float* dweight, float* dbias,
+                        const float* dout, const float* inp, const  float* weight, const float* mean, const float* rstd,
+                        int B, int T, int C) {   
+    layernorm_backward(dinp, dweight, dbias, dout, inp, weight, mean, rstd, B, T, C);
 }
 
 // the sequence of transformations in this compound op is:
