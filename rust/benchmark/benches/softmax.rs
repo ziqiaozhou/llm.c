@@ -5,7 +5,6 @@ use std::time::Duration;
 use common::*;
 use criterion::{Criterion, criterion_group, criterion_main};
 use gpu::prelude::*;
-use gpu_host::{GpuCtxGuard, GpuModule, TensorViewMut, cuda_ctx};
 
 struct SoftMaxForward<'a> {
     config: Config,
@@ -17,7 +16,6 @@ struct SoftMaxForward<'a> {
 impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
-        m: &'a gpu_host::GpuModule<N>,
         config: Config,
     ) -> Option<Self> {
         let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;
@@ -75,7 +73,6 @@ struct SoftMaxBack<'a> {
 impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
-        m: &'a gpu_host::GpuModule<N>,
         config: Config,
     ) -> Option<Self> {
         let len = (config.batch_size * config.num_heads * config.seq_len * config.seq_len) as usize;

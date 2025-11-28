@@ -12,6 +12,10 @@ harness = false
 name = "softmax"
 harness = false
 
+[[bench]]
+name = "layernorm"
+harness = false
+
 [dependencies]
 llmc = {path = "../llmc"}
 llmrs = {path = "../llmrs"}

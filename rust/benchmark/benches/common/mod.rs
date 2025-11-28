@@ -1,6 +1,4 @@
-use std::time::Duration;
-
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::Criterion;
 use rand::Rng;
 
 #[allow(dead_code)]
@@ -35,7 +33,6 @@ pub fn rand_i32_vec(n: usize) -> Vec<i32> {
 pub trait KernelRunner<'a>: Sized {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
-        m: &'a gpu_host::GpuModule<N>,
         config: Config,
     ) -> Option<Self>;
 
@@ -48,6 +45,7 @@ pub trait KernelRunner<'a>: Sized {
     fn c_fn(&mut self);
 }
 
+#[allow(dead_code)]
 pub struct Config {
     pub batch_size: usize,
     pub seq_len: usize,
@@ -99,7 +97,7 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                     num_heads,
                 };
                 let config_str = config.to_str();
-                let Some(mut mybench) = B::new(ctx, m, config) else {
+                let Some(mut mybench) = B::new(ctx, config) else {
                     continue;
                 };
                 group.bench_function(format!("rs_{}", config_str).as_str(), |b| {

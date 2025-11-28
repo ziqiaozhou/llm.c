@@ -15,5 +15,5 @@ void layernorm_backward_host(float *dinp, float *dweight, float *dbias,
                              const float *dout, const float *inp,
                              const float *weight, const float *mean,
                              const float *rstd, int B, int T, int C);
-layernorm_forward_host(float *out, float *mean, float *rstd, float *inp,
+void layernorm_forward_host(float *out, float *mean, float *rstd, float *inp,
                        float *weight, float *bias, int B, int T, int C);

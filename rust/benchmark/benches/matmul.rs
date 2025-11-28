@@ -4,8 +4,6 @@ use std::time::Duration;
 
 use common::*;
 use criterion::{Criterion, criterion_group, criterion_main};
-use gpu::prelude::*;
-use gpu_host::{GpuCtxGuard, GpuModule, TensorViewMut, cuda_ctx};
 
 struct MatMulBack<'a> {
     bias: gpu_host::TensorViewMut<'a, [f32]>,
@@ -16,7 +14,6 @@ struct MatMulBack<'a> {
 impl<'a> KernelRunner<'a> for MatMulBack<'a> {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
-        m: &'a gpu_host::GpuModule<N>,
         config: Config,
     ) -> Option<Self> {
         let bias = ctx
@@ -70,7 +67,6 @@ struct MatMulForward<'a> {
 impl<'a> KernelRunner<'a> for MatMulForward<'a> {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
-        m: &'a gpu_host::GpuModule<N>,
         config: Config,
     ) -> Option<Self> {
         let channel = config.out_channel / 4;

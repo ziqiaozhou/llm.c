@@ -101,7 +101,7 @@ void layernorm_forward(float* out, float* mean, float* rstd,
 }
 */
 
-pub(crate) fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
+pub fn layernorm_forward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
     out: &mut TensorViewMut<'_, [f32]>,
@@ -155,7 +155,7 @@ void layernorm_backward(float* dinp, float* dweight, float* dbias,
 }
 */
 
-pub(crate) fn layernorm_backward<'ctx, CN: GpuCtxSpace>(
+pub fn layernorm_backward<'ctx, CN: GpuCtxSpace>(
     ctx: &GpuCtxGuard<'ctx, '_, CN>,
     m: &GpuModule<CN>,
     dinp: &mut TensorViewMut<'_, [f32]>,
