@@ -858,6 +858,10 @@ void residual_forward(float* out, float* inp1, float* inp2, int N) {
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void residual_forward_host(float* out, float* inp1, float* inp2, int N) {
+    residual_forward(out, inp1, inp2, N);
+}
+
 extern "C" void gelu_forward(float* out, const float* inp, int N) {
     const int block_size = 128;
     const int grid_size = CEIL_DIV(N, block_size);

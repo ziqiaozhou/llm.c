@@ -40,6 +40,10 @@ harness = false
 name = "gelu"
 harness = false
 
+[[bench]]
+name = "residual"
+harness = false
+
 [dependencies]
 llmc = {path = "../llmc"}
 llmrs = {path = "../llmrs"}

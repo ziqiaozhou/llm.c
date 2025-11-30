@@ -36,3 +36,4 @@ void encoder_forward_host(float *out, const int *inp, const float *wte,
                           const float *wpe, int B, int T, int C);
 void encoder_backward_host(float *dwte, float *dwpe, const float *dout,
                            const int *inp, int B, int T, int C);
+void residual_forward_host(float *out, float *inp1, float *inp2, int N);
