@@ -806,6 +806,24 @@ void attention_forward(float* out, float* qkvr, float* att,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void permute_kernel_host(float* q, float* k, float* v, float* inp,
+                                    int B, int T, int NH, int HS) {
+    int total_threads = B * NH * T * HS;
+    const int block_size = 256;
+    int num_blocks = CEIL_DIV(total_threads, block_size);
+    permute_kernel<<<num_blocks, block_size>>>(q, k, v, inp, B, T, NH, HS);
+    cudaCheck(cudaGetLastError());
+}
+
+extern "C" void permute_kernel_backward_host(float* dinp, float* dq, float* dk, float* dv,
+                                            int B, int T, int NH, int HS) {
+    int total_threads = B * NH * T * HS;
+    const int block_size = 256;
+    int num_blocks = CEIL_DIV(total_threads, block_size);
+    permute_kernel_backward<<<num_blocks, block_size>>>(dinp, dq, dk, dv, B, T, NH, HS);
+    cudaCheck(cudaGetLastError());
+}
+
 extern "C" void softmax_forward_host(float* out, const float* inp, int B, int T, int NH, float scale) {
     const int block_size = 256;
     const int grid_size = CEIL_DIV(B * NH * T * 32, block_size);
@@ -923,6 +941,24 @@ void attention_backward(float* dinp, float* dqkvr, float* dpreatt, float* datt, 
     // backward into inp
     num_blocks = CEIL_DIV(B * NH * T * HS, block_size);
     permute_kernel_backward<<<num_blocks, block_size>>>(dinp, dq, dk, dv, B, T, NH, HS);
+    cudaCheck(cudaGetLastError());
+}
+
+extern "C" void unpermute_kernel_backward_host(float* dinp, float* dout,
+                                            int B, int T, int NH, int HS) {
+    int total_threads = B * NH * T * HS;
+    const int block_size = 256;
+    int num_blocks = CEIL_DIV(total_threads, block_size);
+    unpermute_kernel_backward<<<num_blocks, block_size>>>(dinp, dout, B, T, NH, HS);
+    cudaCheck(cudaGetLastError());
+}
+
+extern "C" void unpermute_kernel_host(float* out, float* inp,
+                                    int B, int T, int NH, int HS) {
+    int total_threads = B * T * NH * HS;
+    const int block_size = 256;
+    int num_blocks = CEIL_DIV(total_threads, block_size);
+    unpermute_kernel<<<num_blocks, block_size>>>(inp, out, B, T, NH, HS);
     cudaCheck(cudaGetLastError());
 }
 
@@ -1513,6 +1549,21 @@ void gpt2_update(GPT2 *model, float learning_rate, float beta1, float beta2, flo
     adamw_kernel2<<<num_blocks, block_size>>>(model->params_memory, model->grads_memory, model->m_memory, model->v_memory,
                                               model->num_parameters,
                                               learning_rate, beta1, beta2, beta1_correction, beta2_correction, eps, weight_decay);
+    cudaCheck(cudaGetLastError());
+}
+
+extern "C" void adamw_kernel2_host(float* params, float* grads, float* m, float* v,
+                                   int num_parameters,
+                                   float learning_rate, float beta1, float beta2,
+                                   float beta1_correction, float beta2_correction,
+                                   float eps, float weight_decay) {
+    int block_size = 512;
+    int num_blocks = CEIL_DIV(num_parameters, block_size);
+    adamw_kernel2<<<num_blocks, block_size>>>(params, grads, m, v,
+                                              num_parameters,
+                                              learning_rate, beta1, beta2,
+                                              beta1_correction, beta2_correction,
+                                              eps, weight_decay);
     cudaCheck(cudaGetLastError());
 }
 

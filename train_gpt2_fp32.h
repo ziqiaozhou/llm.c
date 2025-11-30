@@ -19,4 +19,16 @@ void layernorm_forward_host(float *out, float *mean, float *rstd, float *inp,
                             float *weight, float *bias, int B, int T, int C);
 void fused_classifier_host(float *logits, float *losses, const float *dlosses,
                            const int *targets, int B, int T, int V, int P);
+void permute_kernel_host(float *q, float *k, float *v, float *inp, int B, int T,
+                         int NH, int HS);
+void permute_kernel_backward_host(float *dinp, float *dq, float *dk, float *dv,
+                                  int B, int T, int NH, int HS);
 void empty_host(int B, int T, int C);
+void unpermute_kernel_backward_host(float *dinp, float *dout, int B, int T,
+                                    int NH, int HS);
+void unpermute_kernel_host(float *out, float *inp, int B, int T, int NH,
+                           int HS);
+void adamw_kernel2_host(float *params, float *grads, float *m, float *v,
+                        int num_parameters, float learning_rate, float beta1,
+                        float beta2, float beta1_correction,
+                        float beta2_correction, float eps, float weight_decay);

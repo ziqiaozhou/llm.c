@@ -40,7 +40,7 @@ impl GPT2Config {
         }
     }
 
-    pub(crate) fn get_params_sizes(&self) -> [usize; NUM_PARAMETER_TENSORS] {
+    pub fn get_params_sizes(&self) -> [usize; NUM_PARAMETER_TENSORS] {
         let mut param_sizes = [0; NUM_PARAMETER_TENSORS];
         let config = self;
         let ch = config.channels;

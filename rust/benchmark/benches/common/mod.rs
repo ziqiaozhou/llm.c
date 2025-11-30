@@ -71,6 +71,17 @@ impl Config {
             self.out_channel
         )
     }
+
+    pub(crate) fn to_llm_config(&self) -> llmrs::GPT2Config {
+        llmrs::GPT2Config {
+            max_seq_len: self.seq_len,
+            channels: self.channel,
+            vocab_size: self.vocab_size,
+            padded_vocab_size: self.padded_vocab_size,
+            num_layers: 12,
+            num_heads: self.num_heads,
+        }
+    }
 }
 
 pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
@@ -84,7 +95,7 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
     for seq_length_order in (10..20).step_by(4) {
         let seq_len = 1 << seq_length_order;
         for out_channel in [128, 1024] {
-            for vocab_size in [1024, 4096] {
+            for vocab_size in [1024] {
                 let num_heads = 8;
                 let channel = out_channel / 4;
                 let head_size = channel / num_heads;
@@ -137,10 +148,10 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
 
 #[macro_export]
 macro_rules! gen_bench {
-    ($bench_type:ty, $name:expr) => {
+    ($($bench_type:ty, $name:expr),*) => {
         fn bench_function(c: &mut Criterion) {
             gpu_host::cuda_ctx(0, |ctx, m| {
-                bench_llm_rs::<_, $bench_type>(c, $name, ctx, m);
+                $(bench_llm_rs::<_, $bench_type>(c, $name, ctx, m);)*
             });
         }
 

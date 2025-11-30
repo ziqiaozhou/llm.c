@@ -80,6 +80,7 @@ dependencies = [
  "criterion",
  "gpu",
  "gpu_host",
+ "llm-rs-gpu",
  "llmc",
  "llmrs",
  "rand",
