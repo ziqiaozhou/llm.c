@@ -30,6 +30,7 @@ pub fn rand_i32_vec(n: usize) -> Vec<i32> {
     (0..n).map(|_| rng.random::<i32>()).collect()
 }
 
+#[allow(dead_code)]
 pub fn rand_i32_in_vocab_vec(n: usize, vocab_size: usize) -> Vec<i32> {
     let mut rng = rand::rng();
     (0..n).map(|_| (rng.random::<u32>() % vocab_size as u32) as i32).collect()
@@ -78,6 +79,7 @@ impl Config {
         )
     }
 
+    #[allow(dead_code)]
     pub fn to_llm_config(&self) -> llmrs::GPT2Config {
         llmrs::GPT2Config {
             max_seq_len: self.seq_len,
