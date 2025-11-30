@@ -723,6 +723,18 @@ void encoder_backward(float* dwte, float* dwpe,
     cudaCheck(cudaGetLastError());
 }
 
+extern "C" void encoder_forward_host(float* out,
+                                    const int* inp, const float* wte, const float* wpe,
+                                    int B, int T, int C) {
+    encoder_forward(out, inp, wte, wpe, B, T, C);
+}
+
+extern "C" void encoder_backward_host(float* dwte, float* dwpe,
+                                     const float* dout, const int* inp,
+                                     int B, int T, int C) {
+    encoder_backward(dwte, dwpe, dout, inp, B, T, C);
+}
+
 void layernorm_forward(float* out, float* mean, float* rstd,
                        float* inp, float* weight, float* bias,
                        int B, int T, int C) {

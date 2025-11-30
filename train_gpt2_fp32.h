@@ -32,3 +32,7 @@ void adamw_kernel2_host(float *params, float *grads, float *m, float *v,
                         int num_parameters, float learning_rate, float beta1,
                         float beta2, float beta1_correction,
                         float beta2_correction, float eps, float weight_decay);
+void encoder_forward_host(float *out, const int *inp, const float *wte,
+                          const float *wpe, int B, int T, int C);
+void encoder_backward_host(float *dwte, float *dwpe, const float *dout,
+                           const int *inp, int B, int T, int C);

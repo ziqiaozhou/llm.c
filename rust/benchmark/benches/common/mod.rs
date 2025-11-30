@@ -30,6 +30,11 @@ pub fn rand_i32_vec(n: usize) -> Vec<i32> {
     (0..n).map(|_| rng.random::<i32>()).collect()
 }
 
+pub fn rand_i32_in_vocab_vec(n: usize, vocab_size: usize) -> Vec<i32> {
+    let mut rng = rand::rng();
+    (0..n).map(|_| (rng.random::<u32>() % vocab_size as u32) as i32).collect()
+}
+
 pub trait KernelRunner<'a>: Sized {
     fn new<N: gpu_host::GpuCtxSpace>(
         ctx: &'a gpu_host::GpuCtxGuard<N>,
@@ -57,6 +62,7 @@ pub struct Config {
     pub padded_vocab_size: usize,
     pub head_size: usize,
     pub num_heads: usize,
+    pub num_layers: usize,
 }
 
 impl Config {
@@ -72,13 +78,13 @@ impl Config {
         )
     }
 
-    pub(crate) fn to_llm_config(&self) -> llmrs::GPT2Config {
+    pub fn to_llm_config(&self) -> llmrs::GPT2Config {
         llmrs::GPT2Config {
             max_seq_len: self.seq_len,
             channels: self.channel,
             vocab_size: self.vocab_size,
             padded_vocab_size: self.padded_vocab_size,
-            num_layers: 12,
+            num_layers: self.num_layers,
             num_heads: self.num_heads,
         }
     }
@@ -108,6 +114,7 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                     channel,
                     out_channel,
                     num_heads,
+                    num_layers: 12,
                 };
                 let config_str = config.to_str();
                 let Some(mut mybench) = B::new(ctx, config) else {
