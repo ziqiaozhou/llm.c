@@ -154,4 +154,4 @@ impl<'a> KernelRunner<'a> for AdamWKernel<'a> {
     }
 }
 
-gen_bench!(AdamWKernel, "adamw_kernel");
+gen_bench!(AdamWKernel, "adamw");

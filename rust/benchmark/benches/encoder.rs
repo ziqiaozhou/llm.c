@@ -153,4 +153,4 @@ impl<'a> KernelRunner<'a> for EncoderBwd<'a> {
     }
 }
 
-gen_bench!(EncoderFwd, "encoder_fwd_bench", EncoderBwd, "encoder_bwd_bench");
+gen_bench!(EncoderFwd, "encoder_fwd", EncoderBwd, "encoder_bwd");

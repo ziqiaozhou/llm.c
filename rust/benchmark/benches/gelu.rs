@@ -108,4 +108,5 @@ impl<'a> KernelRunner<'a> for GeLu<'a, false> {
 }
 
 type GeLuForward<'a> = GeLu<'a, true>;
-gen_bench!(GeLuForward, "gelu_forward");
+type GeLuBackward<'a> = GeLu<'a, false>;
+gen_bench!(GeLuForward, "gelu-fwd", GeLuBackward, "gelu-bwd");

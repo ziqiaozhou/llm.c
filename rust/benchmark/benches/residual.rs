@@ -58,4 +58,4 @@ impl<'a> KernelRunner<'a> for ResidualForward<'a> {
     }
 }
 
-gen_bench!(ResidualForward, "residual_forward");
+gen_bench!(ResidualForward, "residual-fwd");

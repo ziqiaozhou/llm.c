@@ -500,11 +500,11 @@ type UnpermuteBackward<'a> = Unpermute<'a, false>;
 
 gen_bench!(
     PermuteForward,
-    "permute_forward",
+    "permute-fwd",
     PermuteBackward,
-    "permute_backward",
+    "permute-bwd",
     UnpermuteForward,
-    "unpermute_forward",
+    "unpermute-fwd",
     UnpermuteBackward,
-    "unpermute_backward"
+    "unpermute-bwd"
 );

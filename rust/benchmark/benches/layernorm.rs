@@ -175,17 +175,4 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
     }
 }
 
-fn layernorm_bench(c: &mut Criterion) {
-    gpu_host::cuda_ctx(0, |ctx, m| {
-        bench_llm_rs::<_, LayerNormForward>(c, "layernorm_forward", ctx, m);
-        bench_llm_rs::<_, LayerNormBack>(c, "layernorm_back", ctx, m);
-    });
-}
-
-criterion_group! {
-  name = layernorm;
-  config = Criterion::default().warm_up_time(Duration::from_secs(3));
-  targets = layernorm_bench
-}
-
-criterion_main!(layernorm);
+gen_bench!(LayerNormForward, "layernorm-fwd", LayerNormBack, "layernorm-bwd");

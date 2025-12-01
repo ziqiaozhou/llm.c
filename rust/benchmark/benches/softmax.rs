@@ -139,20 +139,4 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
     }
 }
 
-fn softmax_bench(c: &mut Criterion) {
-    gpu_host::cuda_ctx(0, |ctx, m| {
-        bench_llm_rs::<_, SoftMaxForward>(c, "softmax_forward", ctx, m);
-    });
-
-    gpu_host::cuda_ctx(0, |ctx, m| {
-        bench_llm_rs::<_, SoftMaxBack>(c, "softmax_backward", ctx, m);
-    });
-}
-
-criterion_group! {
-  name = softmax;
-  config = Criterion::default().warm_up_time(Duration::from_secs(3));
-  targets = softmax_bench
-}
-
-criterion_main!(softmax);
+gen_bench!(SoftMaxForward, "softmax-fwd", SoftMaxBack, "softmax-bwd");

@@ -139,17 +139,4 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
     }
 }
 
-fn matmul_bench(c: &mut Criterion) {
-    gpu_host::cuda_ctx(0, |ctx, m| {
-        bench_llm_rs::<_, MatMulForward>(c, "matmul_forward", ctx, m);
-        bench_llm_rs::<_, MatMulBack>(c, "matmul_back", ctx, m);
-    });
-}
-
-criterion_group! {
-  name = matmul;
-  config = Criterion::default().warm_up_time(Duration::from_secs(3));
-  targets = matmul_bench
-}
-
-criterion_main!(matmul);
+gen_bench!(MatMulForward, "matmul-fwd", MatMulBack, "matmul-bwd");
