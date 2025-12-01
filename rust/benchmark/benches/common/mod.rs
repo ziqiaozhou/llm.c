@@ -104,9 +104,9 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
 ) {
     let mut group = c.benchmark_group(name);
     let batch_size = 1;
-    for seq_length_order in (10..20).step_by(4) {
+    for seq_length_order in [10, 14, 20] {
         let seq_len = 1 << seq_length_order;
-        for out_channel in [128, 1024] {
+        for out_channel in [128] {
             for vocab_size in [1024] {
                 let num_heads = 8;
                 let channel = out_channel / 4;
@@ -135,6 +135,23 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                 let smem = launch_config.shared_size();
                 let config_str =
                     format!("{}_{}_{}_{}_{}_{}", config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem);
+
+                // Run empty benchmark to get launch overhead
+                let mut empty_bench = Empty::new_from_runner(&mybench).unwrap();
+                group.bench_function(format!("emptyrs_{}", config_str).as_str(), |b| {
+                    b.iter(|| {
+                        empty_bench.rs_fn(ctx, m);
+                        let _ = ctx.sync();
+                    })
+                });
+                group.bench_function(format!("emptyc_{}", config_str).as_str(), |b| {
+                    b.iter(|| {
+                        empty_bench.c_fn();
+                        let _ = ctx.sync();
+                    })
+                });
+
+                // Run actual benchmark
                 group.bench_function(format!("rs_{}", config_str).as_str(), |b| {
                     b.iter(|| {
                         mybench.rs_fn(ctx, m);
@@ -144,19 +161,6 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                 group.bench_function(format!("c_{}", config_str).as_str(), |b| {
                     b.iter(|| {
                         mybench.c_fn();
-                        let _ = ctx.sync();
-                    })
-                });
-                let mut emty_bench = Empty::new_from_runner(&mybench).unwrap();
-                group.bench_function(format!("empty_rs_{}", config_str).as_str(), |b| {
-                    b.iter(|| {
-                        emty_bench.rs_fn(ctx, m);
-                        let _ = ctx.sync();
-                    })
-                });
-                group.bench_function(format!("empty_c_{}", config_str).as_str(), |b| {
-                    b.iter(|| {
-                        emty_bench.c_fn();
                         let _ = ctx.sync();
                     })
                 });

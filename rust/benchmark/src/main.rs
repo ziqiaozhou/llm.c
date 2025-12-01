@@ -1,5 +1,8 @@
-/// cargo r --bin benchmark -- ./results/criterion-no-check/
-/// cargo r --bin benchmark -- ./results/criterion
+/// CRITERION_HOME=results/criterion-no-check DISABLE_GPU_BOUND_CHECK=true cargo bench;
+/// cargo r --bin benchmark -- ./benchmark/results/criterion-no-check/
+/// cargo clean
+/// CRITERION_HOME=results/criterion DISABLE_GPU_BOUND_CHECK=false cargo bench
+/// cargo r --bin benchmark -- ./benchmark/results/criterion/
 use std::collections::HashMap;
 use std::env::args;
 use std::fs;
@@ -53,12 +56,20 @@ fn main() {
                     let config_parts: Vec<&str> = config.split("_").collect();
                     assert!(config_parts.len() >= 4);
                     let (t, o, v) = (config_parts[1], config_parts[2], config_parts[3]);
-                    let rs_or_c = if config_parts[0] == "rs" { 1 } else { 0 };
-                    let t_o_v = format!("{}_{}_{}", t, o, v);
+                    let rs_or_c = config_parts[0].to_string();
+                    let thread_count = config_parts[8..12]
+                        .iter()
+                        .map(|s| s.parse::<usize>().unwrap())
+                        .product::<usize>();
+                    let t_o_v = format!("{}_{}_{}_{}", t, o, v, thread_count);
                     if !sub_results.contains_key(&t_o_v) {
-                        sub_results.insert(t_o_v.clone(), [0.0, 0.0]);
+                        sub_results.insert(t_o_v.clone(), HashMap::<String, f64>::new());
                     }
-                    sub_results.get_mut(&t_o_v).unwrap()[rs_or_c] = mean_ms;
+                    if !sub_results.get(&t_o_v).unwrap().contains_key(&rs_or_c) {
+                        sub_results.get_mut(&t_o_v).unwrap().insert(rs_or_c.clone(), mean_ms);
+                    } else {
+                        panic!("Duplicate entry for {} {}", t_o_v, rs_or_c);
+                    }
                 }
             }
             results.insert(bench_name.clone(), sub_results);
@@ -67,41 +78,61 @@ fn main() {
 
     let mut file =
         BufWriter::new(std::fs::File::create("results.csv").expect("failed to create result.csv"));
-    writeln!(file, "Benchmark\tT_O\trs\tc\trs/c\tdiff\trs-norm\trs-norm/c-norm").unwrap();
+    writeln!(file, "Benchmark\tT\tO\tV\tThreads\trs\tc\trs/c\tempty-rs\tempty-c\trs-norm/c-norm")
+        .unwrap();
     println!(
-        "{:<25} {:<12} {:<14} {:<14} {:<14} {:<14} {:<14} {:<14}",
-        "Benchmark", "T_O", "rs", "c", "rs/c", "diff", "rs-norm", "rs-norm/c-norm"
+        "{:<20} {:<14} {:<14} {:<14} {:<14} {:<14} {:<14} {:<14}",
+        "Benchmark", "tT_O_V_Th", "rs", "c", "rs/c", "empty-rs", "empty-c", "rs-norm/c-norm"
     );
-    let empty_time_diff = results["empty"]["1024_32_1024"][1] - results["empty"]["1024_32_1024"][0];
-    for (bench_name, sub_results) in &results {
-        for (t_o, times) in sub_results {
-            let rs_time = times[1];
-            let c_time = times[0];
+    let mut keys: Vec<_> = results.keys().collect();
+    keys.sort(); // alphabetical order
+    for bench_name in keys {
+        let sub_results = &results[bench_name];
+        let mut sub_keys = sub_results.keys().collect::<Vec<_>>();
+        sub_keys.sort_by(|a, b| {
+            let len_cmp = a.len().cmp(&b.len());
+            if len_cmp == std::cmp::Ordering::Equal { a.cmp(b) } else { len_cmp }
+        });
+
+        for t_o in sub_keys {
+            let times = &sub_results[t_o];
+            let rs_time = times["rs"];
+            let c_time = times["c"];
+            let empty_c_time = times["emptyc"];
+            let empty_rs_time = times["emptyrs"];
+            let empty_time_diff = times["emptyrs"] - times["emptyc"];
+            // get usize value of t, o, v, threads
+            let t_o_parts: Vec<usize> =
+                t_o.split("_").map(|s| s.parse::<usize>().unwrap()).collect();
+            let (t, o, v, threads) = (t_o_parts[0], t_o_parts[1], t_o_parts[2], t_o_parts[3]);
             if c_time > 0.0 {
                 let rs_to_c = rs_time / c_time;
                 let rs_time_norm = rs_time - empty_time_diff;
                 let rs_norm_to_c = rs_time_norm / c_time;
                 println!(
-                    "{:<25} {:<12} {:>14.2} {:>14.2} {:>14.2} {:>14.2} {:>14.2} {:>14.2}",
+                    "{:<20} {:<14} {:>14.2} {:>14.2} {:>14.2} {:>14.2} {:>14.2} {:>14.2}",
                     &bench_name[..std::cmp::min(20, bench_name.len())],
                     t_o,
                     rs_time,
                     c_time,
                     rs_to_c,
-                    rs_time - c_time,
-                    rs_time_norm,
+                    empty_rs_time,
+                    empty_c_time,
                     rs_norm_to_c
                 );
                 writeln!(
                     file,
-                    "{bench}\t{t_o}\t{rs:.2}\t{c:.2}\t{rs_c:.2}\t{diff:.2}\t{rs_norm:.2}\t{rs_norm_c:.2}",
-                    bench = &bench_name[..std::cmp::min(20, bench_name.len())],
-                    t_o = t_o,
+                    "{bench}\t{t}\t{o}\t{v}\t{threads}\t{rs:.2}\t{c:.2}\t{rs_c:.2}\t{empty_rs_time:.2}\t{empty_c_time:.2}\t{rs_norm_c:.2}",
+                    bench = &bench_name[..std::cmp::min(18, bench_name.len())],
+                    t = t,
+                    o = o,
+                    v = v,
+                    threads = threads,
                     rs = rs_time,
                     c = c_time,
                     rs_c = rs_to_c,
-                    diff = rs_time - c_time,
-                    rs_norm = rs_time_norm,
+                    empty_rs_time = empty_rs_time,
+                    empty_c_time = empty_c_time,
                     rs_norm_c = rs_norm_to_c
                 ).unwrap();
             }
