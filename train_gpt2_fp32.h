@@ -23,7 +23,7 @@ void permute_kernel_host(float *q, float *k, float *v, float *inp, int B, int T,
                          int NH, int HS);
 void permute_kernel_backward_host(float *dinp, float *dq, float *dk, float *dv,
                                   int B, int T, int NH, int HS);
-void empty_host(int B, int T, int C);
+void empty_host(int gdim_x, int gdim_y, int gdim_z, int bdim_x, int bdim_y, int bdim_z, int shared_size);
 void unpermute_kernel_backward_host(float *dinp, float *dout, int B, int T,
                                     int NH, int HS);
 void unpermute_kernel_host(float *out, float *inp, int B, int T, int NH,

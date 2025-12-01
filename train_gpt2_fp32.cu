@@ -78,9 +78,10 @@ __global__ void empty_kernel() {
     __syncthreads();
 }
 
-extern "C" void empty_host(int B, int T, int C) {
-    int grid = CEIL_DIV(B*T*C, 256);
-    empty_kernel<<<grid, 256>>>();
+extern "C" void empty_host(int gdim_x, int gdim_y, int gdim_z, int bdim_x, int bdim_y, int bdim_z, int shared_size) {
+    dim3 gridDim(gdim_x, gdim_y, gdim_z);
+    dim3 blockDim(bdim_x, bdim_y, bdim_z);
+    empty_kernel<<<gridDim, blockDim, shared_size>>>();
 }
 // use of float4 leads to using 128-bit LDG / STG instructions in SASS,
 // very helpful in memory-bound kernels like encoder_forward

@@ -21,10 +21,6 @@ name = "fused"
 harness = false
 
 [[bench]]
-name = "empty"
-harness = false
-
-[[bench]]
 name = "permute"
 harness = false
 

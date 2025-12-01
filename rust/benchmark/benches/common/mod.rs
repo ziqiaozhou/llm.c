@@ -1,6 +1,10 @@
 use criterion::Criterion;
 use rand::Rng;
 
+mod empty;
+
+use empty::Empty;
+
 #[allow(dead_code)]
 /// Returns a Vec of `n` random f32 numbers in [0.0, 1.0)
 pub fn rand_f32_vec(n: usize) -> Vec<f32> {
@@ -129,23 +133,30 @@ pub fn bench_llm_rs<'a, N: gpu_host::GpuCtxSpace, B: KernelRunner<'a>>(
                 let gdim_y = launch_config.grid_dim_y();
                 let bdim_y = launch_config.block_dim_y();
                 let smem = launch_config.shared_size();
-
-                group.bench_function(
-                    format!(
-                        "rs_{}_{}_{}_{}_{}_{}",
-                        config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem
-                    )
-                    .as_str(),
-                    |b| {
-                        b.iter(|| {
-                            mybench.rs_fn(ctx, m);
-                            let _ = ctx.sync();
-                        })
-                    },
-                );
+                let config_str =
+                    format!("{}_{}_{}_{}_{}_{}", config_str, gdim_x, bdim_x, gdim_y, bdim_y, smem);
+                group.bench_function(format!("rs_{}", config_str).as_str(), |b| {
+                    b.iter(|| {
+                        mybench.rs_fn(ctx, m);
+                        let _ = ctx.sync();
+                    })
+                });
                 group.bench_function(format!("c_{}", config_str).as_str(), |b| {
                     b.iter(|| {
                         mybench.c_fn();
+                        let _ = ctx.sync();
+                    })
+                });
+                let mut emty_bench = Empty::new_from_runner(&mybench).unwrap();
+                group.bench_function(format!("empty_rs_{}", config_str).as_str(), |b| {
+                    b.iter(|| {
+                        emty_bench.rs_fn(ctx, m);
+                        let _ = ctx.sync();
+                    })
+                });
+                group.bench_function(format!("empty_c_{}", config_str).as_str(), |b| {
+                    b.iter(|| {
+                        emty_bench.c_fn();
                         let _ = ctx.sync();
                     })
                 });
@@ -166,7 +177,7 @@ macro_rules! gen_bench {
 
         criterion_group! {
           name = bench;
-          config = Criterion::default().warm_up_time(Duration::from_secs(3));
+          config = Criterion::default().warm_up_time(Duration::from_secs(2)).measurement_time(Duration::from_secs(3)).without_plots();
           targets = bench_function
         }
 
