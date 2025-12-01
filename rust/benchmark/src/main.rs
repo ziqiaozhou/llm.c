@@ -81,6 +81,9 @@ fn main() {
                 .replace("forward", "fwd")
                 .replace("back", "bwd")
                 .replace("_bench", "");
+            if sub_results.is_empty() {
+                continue;
+            }
             results.insert(bench_name.clone(), sub_results);
         }
     }
@@ -175,7 +178,6 @@ fn main() {
 
     for run_index in 0..max_runs {
         let seq = [1024, 16384, 1048576][run_index];
-        let offset = run_index as i32 - (max_runs as i32 - 1) / 2;
         let data = latex_data
             .iter()
             .map(|(bench, values)| {
