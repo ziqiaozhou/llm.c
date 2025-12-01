@@ -18,6 +18,7 @@ fn main() {
     assert!(status.success(), "Make command failed");
 
     let header = format!("{}/train_gpt2_fp32.h", llmc_dir);
+    let src = format!("{}/train_gpt2_fp32.cu", llmc_dir);
 
     // 2️⃣ Tell Cargo to link the static library
     println!("cargo:rustc-link-search=native={}", llmc_dir);
@@ -31,6 +32,7 @@ fn main() {
     println!("cargo:rustc-link-lib=dylib=stdc++");
     println!("cargo:rerun-if-changed={}", cuda_src);
     println!("cargo:rerun-if-changed={}", header);
+    println!("cargo:rerun-if-changed={}", src);
 
     // Generate Rust bindings using bindgen
     let bindings = bindgen::Builder::default()
