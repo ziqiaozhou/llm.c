@@ -367,7 +367,7 @@ __global__ void matmul_backward_bias_kernel4(float* dbias, const float* dout, in
     // leading to a coalesced memory access pattern
     float dout_sum = 0.0f;
     for (int row = warp_id; row < B * T; row += vstep) {
-        dout_sum += dout_col[row * OC];
+        dout_sum += __ldcs(dout_col + row * OC);
     }
     smem[lane_id + warp_id * warpSize] = dout_sum;
     __syncthreads();
