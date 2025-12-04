@@ -34,31 +34,32 @@ macro_rules! time_it {
 }
 
 #[derive(Parser, Debug)]
+#[command(name = "llmrs")]
 struct Args {
     /// Name of the user
-    #[arg(default_value = top_path!("dev/data/tinyshakespeare/tiny_shakespeare_train.bin"))]
+    #[arg(default_value = top_path!("dev/data/tinyshakespeare/tiny_shakespeare_train.bin"), long)]
     train_data_pattern: PathBuf,
-    #[arg(default_value = top_path!("dev/data/tinyshakespeare/tiny_shakespeare_val.bin"))]
+    #[arg(default_value = top_path!("dev/data/tinyshakespeare/tiny_shakespeare_val.bin"), long)]
     val_data_pattern: PathBuf,
-    #[arg(default_value = top_path!("gpt2_124M.bin"), value_parser)]
+    #[arg(default_value = top_path!("gpt2_124M.bin"), value_parser, long)]
     model_path: PathBuf,
-    #[arg(default_value = top_path!("gpt2_tokenizer.bin"), value_parser)]
+    #[arg(default_value = top_path!("gpt2_tokenizer.bin"), value_parser, long)]
     tokenizer_path: PathBuf,
-    #[arg(default_value = "llm_rs.log")]
+    #[arg(default_value = "llm_rs.log", long)]
     output_log_file: String,
-    #[arg(default_value_t = 4)]
+    #[arg(default_value_t = 4, long)]
     batch_size: usize,
-    #[arg(default_value_t = 1024)]
+    #[arg(default_value_t = 1024, long)]
     seq_length: usize,
-    #[arg(default_value_t = 3e-4)]
+    #[arg(default_value_t = 3e-4, long)]
     learning_rate: f32,
-    #[arg(default_value_t = 20)]
+    #[arg(default_value_t = 20, long)]
     val_loss_every: usize,
-    #[arg(default_value_t = 20)]
+    #[arg(default_value_t = 20, long)]
     val_max_steps: usize,
-    #[arg(default_value_t = 20)]
+    #[arg(default_value_t = 20, long)]
     sample_every: usize,
-    #[arg(default_value_t = 64)]
+    #[arg(default_value_t = 64, long)]
     gen_t: usize,
 }
 
