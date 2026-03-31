@@ -42,7 +42,6 @@ harness = false
 
 [dev-dependencies]
 llmc = {path = "../llmc"}
-llmrs = {path = "../llmrs"}
 llm-rs-gpu = {workspace=true}
 gpu_host = { workspace=true }
 gpu = {workspace = true}

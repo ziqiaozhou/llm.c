@@ -84,15 +84,27 @@ impl Config {
     }
 
     #[allow(dead_code)]
-    pub fn to_llm_config(&self) -> llmrs::GPT2Config {
-        llmrs::GPT2Config {
-            max_seq_len: self.seq_len,
-            channels: self.channel,
-            vocab_size: self.vocab_size,
-            padded_vocab_size: self.padded_vocab_size,
-            num_layers: self.num_layers,
-            num_heads: self.num_heads,
-        }
+    pub fn get_params_sizes(&self) -> [usize; 16] {
+        let ch = self.channel;
+        let num_layers = self.num_layers;
+        [
+            self.padded_vocab_size * ch, // wte
+            self.seq_len * ch,           // wpe
+            num_layers * ch,             // ln1w
+            num_layers * ch,             // ln1b
+            num_layers * (3 * ch) * ch,  // qkvw
+            num_layers * (3 * ch),       // qkvb
+            num_layers * ch * ch,        // attprojw
+            num_layers * ch,             // attprojb
+            num_layers * ch,             // ln2w
+            num_layers * ch,             // ln2b
+            num_layers * (4 * ch) * ch,  // fcw
+            num_layers * (4 * ch),       // fcb
+            num_layers * ch * (4 * ch),  // fcprojw
+            num_layers * ch,             // fcprojb
+            ch,                          // lnfw
+            ch,                          // lnfb
+        ]
     }
 }
 

@@ -11,6 +11,7 @@ struct FusedClassifier<'a> {
     losses: gpu_host::TensorViewMut<'a, [f32]>,
     dlosses: gpu_host::TensorViewMut<'a, [f32]>,
     targets: gpu_host::TensorViewMut<'a, [i32]>,
+    empty: gpu_host::TensorViewMut<'a, [f32]>,
 }
 
 impl<'a> KernelRunner<'a> for FusedClassifier<'a> {
@@ -39,7 +40,8 @@ impl<'a> KernelRunner<'a> for FusedClassifier<'a> {
                     .as_slice(),
             )
             .expect("tensor alloc failed");
-        Some(Self { config, logits, losses, dlosses, targets })
+        let empty = ctx.new_tensor_view([].as_slice()).unwrap();
+        Some(Self { config, logits, losses, dlosses, targets, empty })
     }
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
@@ -53,7 +55,22 @@ impl<'a> KernelRunner<'a> for FusedClassifier<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::fused_classifier3(
+        llm_rs_gpu::fused_classifier_kernel3::launch(
+            self.launch_config(),
+            ctx,
+            m,
+            &mut self.logits,
+            &mut self.losses,
+            &mut self.empty,
+            &self.dlosses,
+            &self.targets,
+            self.config.batch_size as _,
+            self.config.seq_len as _,
+            self.config.vocab_size as _,
+            self.config.padded_vocab_size as _,
+        )
+        .expect("failed to launch fused_classifier_kernel3");
+        /*llmrs::kernels::fused_classifier3(
             ctx,
             m,
             &mut self.logits,
@@ -64,7 +81,7 @@ impl<'a> KernelRunner<'a> for FusedClassifier<'a> {
             self.config.seq_len,
             self.config.vocab_size,
             self.config.padded_vocab_size,
-        );
+        );*/
     }
 
     fn c_fn(&mut self) {

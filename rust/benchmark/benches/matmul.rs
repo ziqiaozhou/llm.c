@@ -50,7 +50,8 @@ impl<'a> KernelRunner<'a> for MatMulBack<'a> {
             self.config.batch_size as _, // batch size
             self.config.seq_len as _,    // seq length
             self.config.out_channel as _,
-        ).expect("launch failed");
+        )
+        .expect("launch failed");
     }
 
     fn c_fn(&mut self) {
@@ -88,7 +89,9 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
             )
             .expect("tensor alloc failed");
         let inp = ctx
-            .new_tensor_view(rand_float4_vec(config.batch_size * config.seq_len * channel).as_slice())
+            .new_tensor_view(
+                rand_float4_vec(config.batch_size * config.seq_len * channel).as_slice(),
+            )
             .expect("tensor alloc failed");
         let weight = ctx
             .new_tensor_view(rand_float4_vec(channel * channel).as_slice())
@@ -120,7 +123,8 @@ impl<'a> KernelRunner<'a> for MatMulForward<'a> {
             &self.bias,
             self.config.channel as _,
             self.config.out_channel as _,
-        ).expect("launch failed");
+        )
+        .expect("launch failed");
     }
 
     fn c_fn(&mut self) {

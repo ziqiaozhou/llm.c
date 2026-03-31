@@ -53,7 +53,8 @@ impl<'a> KernelRunner<'a> for LayerNormForward<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::layernorm_forward(
+        llm_rs_gpu::layernorm_forward_kernel3::launch(
+            self.launch_config(),
             ctx,
             m,
             &mut self.out,
@@ -62,10 +63,10 @@ impl<'a> KernelRunner<'a> for LayerNormForward<'a> {
             &self.inp,
             &self.weight,
             &self.bias,
-            self.config.batch_size,
-            self.config.seq_len,
-            self.config.channel,
-        );
+            (self.config.batch_size * self.config.seq_len) as _,
+            self.config.channel as _,
+        )
+        .expect("failed to launch layernorm_forward_kernel3");
     }
 
     fn c_fn(&mut self) {
@@ -131,7 +132,8 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
         const BDIM: u32 = 512;
         let grid =
             (self.config.batch_size * self.config.seq_len * 32).div_ceil(BDIM as usize) as u32;
-        gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, 0)
+        let shared_mem_size = 2 * self.config.channel * std::mem::size_of::<f32>();
+        gpu_host::gpu_config!(grid, 1, 1, @const BDIM, 1, 1, shared_mem_size as u32)
     }
 
     fn rs_fn<N: gpu_host::GpuCtxSpace>(
@@ -139,7 +141,8 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::layernorm_backward(
+        llm_rs_gpu::layernorm_backward_kernel2::launch(
+            self.launch_config(),
             ctx,
             m,
             &mut self.dinp,
@@ -150,10 +153,11 @@ impl<'a> KernelRunner<'a> for LayerNormBack<'a> {
             &self.weight,
             &self.mean,
             &self.rstd,
-            self.config.batch_size,
-            self.config.seq_len,
-            self.config.channel,
-        );
+            self.config.batch_size as _,
+            self.config.seq_len as _,
+            self.config.channel as _,
+        )
+        .expect("failed to launch layernorm_backward_kernel2");
     }
 
     fn c_fn(&mut self) {

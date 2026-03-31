@@ -64,7 +64,7 @@ impl<'a> KernelRunner<'a> for AdamWKernel<'a> {
         ctx: &'a gpu_host::GpuCtxGuard<N>,
         config: Config,
     ) -> Option<Self> {
-        let num_params = config.to_llm_config().get_params_sizes().iter().sum();
+        let num_params = config.get_params_sizes().iter().sum();
         if num_params > u32::MAX as usize {
             return None;
         }
@@ -102,7 +102,7 @@ impl<'a> KernelRunner<'a> for AdamWKernel<'a> {
 
     fn launch_config(&self) -> impl gpu_host::SafeGpuConfig {
         const BSIZE: u32 = 512;
-        let num_params = self.config.to_llm_config().get_params_sizes().iter().sum::<usize>();
+        let num_params = self.config.get_params_sizes().iter().sum::<usize>();
         let grid_size = (num_params as u32 + BSIZE - 1) / BSIZE;
         gpu_host::gpu_config!(grid_size, 1, 1, @const BSIZE, 1, 1, 0)
     }
@@ -112,7 +112,7 @@ impl<'a> KernelRunner<'a> for AdamWKernel<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        let num_params = self.config.to_llm_config().get_params_sizes().iter().sum::<usize>();
+        let num_params = self.config.get_params_sizes().iter().sum::<usize>();
         llm_rs_gpu::adamw_kernel2::launch(
             self.launch_config(),
             ctx,
@@ -134,7 +134,7 @@ impl<'a> KernelRunner<'a> for AdamWKernel<'a> {
     }
 
     fn c_fn(&mut self) {
-        let num_params = self.config.to_llm_config().get_params_sizes().iter().sum::<usize>();
+        let num_params = self.config.get_params_sizes().iter().sum::<usize>();
         unsafe {
             llmc::adamw_kernel2_host(
                 self.params.as_devptr() as _,

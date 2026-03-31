@@ -42,16 +42,17 @@ impl<'a> KernelRunner<'a> for SoftMaxForward<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::softmax_forward(
+        llm_rs_gpu::softmax_forward_kernel5::launch(
+            self.launch_config(),
             ctx,
             m,
             &mut self.preatt,
-            &self.att,
-            self.config.batch_size,
-            self.config.seq_len,
-            self.config.num_heads,
             self.scale,
-        );
+            &self.att,
+            (self.config.batch_size * self.config.num_heads) as _,
+            self.config.seq_len as _,
+        )
+        .expect("failed to launch softmax_forward_kernel5");
     }
 
     fn c_fn(&mut self) {
@@ -111,17 +112,19 @@ impl<'a> KernelRunner<'a> for SoftMaxBack<'a> {
         ctx: &gpu_host::GpuCtxGuard<N>,
         m: &gpu_host::GpuModule<N>,
     ) {
-        llmrs::kernels::softmax_autoregressive_backward_kernel(
+        llm_rs_gpu::softmax_autoregressive_backward_kernel::launch(
+            self.launch_config(),
             ctx,
             m,
             &mut self.dpreatt,
             &self.datt,
             &self.att,
-            self.config.batch_size,
-            self.config.seq_len,
-            self.config.channel,
+            self.config.batch_size as _,
+            self.config.seq_len as _,
+            self.config.channel as _,
             self.scale,
-        );
+        )
+        .expect("failed to launch softmax_autoregressive_backward_kernel");
     }
 
     fn c_fn(&mut self) {
