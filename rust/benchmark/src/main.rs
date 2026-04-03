@@ -69,7 +69,7 @@ fn main() {
                     if !sub_results.get(&t_o_v).unwrap().contains_key(&rs_or_c) {
                         sub_results.get_mut(&t_o_v).unwrap().insert(rs_or_c.clone(), mean_ms);
                     } else {
-                        panic!("Duplicate entry for {} {}", t_o_v, rs_or_c);
+                        panic!("Duplicate entry for {} {} for {}", t_o_v, rs_or_c, bench_name);
                     }
                 }
             }

@@ -10,8 +10,23 @@ fn main() {
     let llmc_dir = format!("{}/../../", cur_dir);
     // cd ../
     // make libtrain_gpt2fp32.a
+    let use_llvm = if cfg!(feature = "llvm") { "1" } else { "0" };
+    // remove libtrain_gpt2fp32.a if exists
+    let _ = Command::new("rm")
+        .current_dir(&llmc_dir)
+        .arg("-f")
+        .arg("libtrain_gpt2fp32.a")
+        .status()
+        .expect("Failed to execute rm command");
+    let _ = Command::new("rm")
+        .current_dir(&llmc_dir)
+        .arg("-f")
+        .arg("libtrain_gpt2fp32.o")
+        .status()
+        .expect("Failed to execute rm command");
     let status = Command::new("make")
         .current_dir(&llmc_dir)
+        .env("USE_LLVM", use_llvm)
         .arg("libtrain_gpt2fp32.a")
         .status()
         .expect("Failed to execute make command");
@@ -33,6 +48,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", cuda_src);
     println!("cargo:rerun-if-changed={}", header);
     println!("cargo:rerun-if-changed={}", src);
+    println!("cargo:rerun-if-changed=build.rs");
 
     // Generate Rust bindings using bindgen
     let bindings = bindgen::Builder::default()

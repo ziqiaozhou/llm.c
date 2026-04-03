@@ -35,6 +35,16 @@ the layernorms are connected to the residuals so we += in layernorm backward.
 
 // ----------------------------------------------------------------------------
 // CUDA utils
+#if defined(__clang__) && defined(__CUDA__)
+__device__ void __stcs(const float* ptr, const float value)
+{
+    asm ("st.global.cs.f32 [%0], %1;"  :: "l"(ptr),  "r"(value) : "memory");
+}
+
+int max(int a, int b) {
+    return a > b ? a : b;
+}
+#endif
 
 // convenience macro for calculating grid/block dimensions for kernels
 #define CEIL_DIV(M, N) (((M) + (N)-1) / (N))

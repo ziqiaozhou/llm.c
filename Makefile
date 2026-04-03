@@ -13,9 +13,25 @@ CUDA_OUTPUT_FILE = -o $@
 
 # Default O3 CPU optimization level for NVCC (0 for fastest compile time)
 FORCE_NVCC_O ?= 3
-
+USE_LLVM ?=
 # NVCC flags
 # -t=0 is short for --threads, 0 = number of CPUs on the machine
+LLVM_FLAGS = -fno-cuda-short-ptr\
+  --cuda-path=/usr/local/cuda \
+  -O$(FORCE_NVCC_O) \
+  --cuda-gpu-arch=sm_80 \
+  -L/usr/local/cuda/lib \
+  -I/usr/local/cuda/targets/x86_64-linux/include/cccl/ \
+  -pthread \
+  -ffast-math \
+  -fcuda-flush-denormals-to-zero \
+  -fdenormal-fp-math=preserve-sign \
+  -mllvm --nvptx-prec-divf32=0 \
+  -mllvm --nvptx-approx-log2f32 \
+  -mllvm --nvptx-prec-sqrtf32=0 \
+  -mllvm --nvptx-rsqrt-approx-opt \
+  -Xcuda-ptxas --warn-on-spills \
+  -Xcuda-ptxas --return-at-end
 NVCC_FLAGS = --threads=0 -t=0 --use_fast_math -std=c++17 -O$(FORCE_NVCC_O)
 NVCC_LDFLAGS = -lcublas -lcublasLt
 NVCC_INCLUDES =
@@ -104,6 +120,11 @@ else
     OUTPUT_FILE = /link /OUT:$@ && copy /Y $@ $@.exe
     CUDA_OUTPUT_FILE = -o $@ && copy /Y $@.exe $@
   endif
+endif
+
+ifeq ($(USE_LLVM), 1)
+  NVCC_FLAGS := $(LLVM_FLAGS)
+  NVCC := clang++-23
 endif
 
 # Check and include cudnn if available
