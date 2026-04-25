@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "benchmark",
     "llmc",
     "llmrs",
 ]
@@ -9,9 +8,9 @@ members = [
 memmap2 = {version = "0.9.8"}
 cudarc = {version = "0.17", features = ["cuda-12090"]}
 clap = { version = "4.2", features = ["derive"] }
-gpu_host = {path = "../../crates/gpu-host"}
-gpu = {path = "../../crates/gpu"}
-llm-rs-gpu = {path = "../../examples/llm-rs-gpu"}
+gpu_host = {path = "../../../crates/gpu-host"}
+gpu = {path = "../../../crates/gpu"}
+llm-rs-gpu = {path = "../../../examples/llm-rs-gpu"}
 rand = "0.9"
 log = "0.4"
 env_logger = "0.10"
